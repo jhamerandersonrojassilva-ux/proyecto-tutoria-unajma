@@ -1,0 +1,278 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model roles {
+  id         Int        @id @default(autoincrement())
+  nombre_rol String     @unique @db.VarChar(50) // 'ADMIN', 'TUTOR'
+  usuarios   usuarios[]
+}
+
+model usuarios {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique @db.VarChar(50)
+  password_hash String
+  rol_id        Int?
+  activo        Boolean?  @default(true)
+  telefono      String?   @db.VarChar(15) // Nuevo: Para enviar accesos por WhatsApp
+  tutor         tutores?
+  roles         roles?    @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+// Nuevo: Modelo para manejar los periodos (2025-I, 2025-II, etc.)
+model ciclos {
+  id           Int            @id @default(autoincrement())
+  nombre_ciclo String         @unique @db.VarChar(20)
+  activo       Boolean        @default(true)
+  asignaciones asignaciones[]
+}
+
+model tutores {
+  id                   Int                   @id @default(autoincrement())
+  nombres_apellidos    String                @db.VarChar(255)
+  dni                  String                @unique @db.VarChar(8)
+  codigo_docente       String                @unique @db.VarChar(20)
+  correo_institucional String?               @db.VarChar(100)
+  especialidad         String?               @db.VarChar(100)
+  activo               Boolean?              @default(true)
+  usuario_id           Int?                  @unique
+  calendario_tutorias  calendario_tutorias[]
+  derivaciones         derivaciones[]
+  estudiantes          estudiantes[]
+  sesiones_grupales    sesiones_grupales[]
+  sesiones_tutoria     sesiones_tutoria[]
+  asignaciones         asignaciones[] // Relación con la nueva tabla
+  usuario              usuarios?             @relation(fields: [usuario_id], references: [id])
+}
+
+// Nuevo: Tabla Maestra de Asignaciones (El corazón del Admin)
+model asignaciones {
+  id            Int         @id @default(autoincrement())
+  tutor_id      Int
+  estudiante_id Int
+  ciclo_id      Int
+  fecha_asigna  DateTime    @default(now())
+  notificado    Boolean     @default(false) // Para saber si se envió el WA masivo
+  
+  tutor         tutores     @relation(fields: [tutor_id], references: [id])
+  estudiante    estudiantes @relation(fields: [estudiante_id], references: [id])
+  ciclo         ciclos      @relation(fields: [ciclo_id], references: [id])
+}
+
+model estudiantes {
+  id                      Int                   @id @default(autoincrement())
+  nombres_apellidos       String                @db.VarChar(255)
+  fecha_nacimiento        DateTime?             @db.Date
+  dni                     String                @unique @db.VarChar(8)
+  codigo_estudiante       String                @unique @db.VarChar(20)
+  escuela_profesional     String?               @db.VarChar(100)
+  ciclo_actual            String?               @db.VarChar(10)
+  telefono                String?               @db.VarChar(15)
+  correo_institucional    String?               @db.VarChar(100)
+  direccion_actual        String?
+  enfermedad_discapacidad String?
+  intervencion_quirurgica String?
+  medicamentos            String?
+  trabaja_actualmente     Boolean?              @default(false)
+  promedio_ponderado      Decimal?              @db.Decimal(4, 2)
+  tutor_asignado_id       Int?
+  asistencia_grupal       asistencia_grupal[]
+  calendario_tutorias     calendario_tutorias[]
+  derivaciones            derivaciones[]
+  tutores                 tutores?              @relation(fields: [tutor_asignado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sesiones_tutoria        sesiones_tutoria[]
+  asignaciones            asignaciones[] // Relación con la nueva tabla
+}
+
+// ... EL RESTO DE TUS MODELOS SE MANTIENEN IGUAL (sesiones_tutoria, derivaciones, etc.) ...
+// (Asegúrate de copiar el resto de tu código original aquí abajo para no perderlo)
+
+model sesiones_grupales {
+  id               Int                 @id @default(autoincrement())
+  tutor_id         Int
+  tema             String
+  fecha            DateTime            @db.Date
+  hora_inicio      String?             @db.VarChar(20)
+  hora_cierre      String?             @db.VarChar(20)
+  area_tema        String?             @db.VarChar(50)
+  total_asignados  Int?                @default(0)
+  total_asistentes Int?                @default(0)
+  firma_tutor_url  String?
+  evidencia_url    String?
+  createdAt        DateTime            @default(now())
+  asistentes       asistencia_grupal[]
+  tutores          tutores             @relation(fields: [tutor_id], references: [id])
+}
+
+model asistencia_grupal {
+  id               Int               @id @default(autoincrement())
+  estudiante_id    Int
+  sesion_grupal_id Int
+  tipo_formato     String            @default("F02") @db.VarChar(10)
+  estudiantes      estudiantes       @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  sesion_grupal    sesiones_grupales @relation(fields: [sesion_grupal_id], references: [id], onDelete: Cascade)
+}
+
+model sesiones_tutoria {
+  id                    Int          @id @default(autoincrement())
+  
+  // IDs (Scalar fields)
+  estudiante_id         Int?         
+  tutor_id              Int?         
+  
+  fecha                 DateTime?    @default(now()) @db.Timestamptz(6)
+  tipo_formato          String?      @db.VarChar(20)
+
+  // --- I. DATOS PERSONALES ---
+  lugar_nacimiento      String?      @db.Text
+  estado_civil          String?      @db.VarChar(20)
+  año_ingreso           String?      @db.VarChar(10)
+  tel_emergencia        String?      @db.VarChar(50)
+  referencia_emergencia String?      @db.Text
+
+  // --- II. CONDICIONES DE SALUD ---
+  salud_enfermedad      String?      @db.VarChar(10)
+  salud_enfermedad_cual String?      @db.Text
+  salud_cirugia         String?      @db.VarChar(10)
+  salud_cirugia_cual    String?      @db.Text
+  salud_medicamentos    String?      @db.VarChar(10)
+  salud_medicamentos_cuales String?  @db.Text
+
+  // --- III. COMPOSICIÓN FAMILIAR ---
+  familiares            Json?        // Estructura de tabla guardada como JSON
+
+  // --- IV. CONDICIÓN LABORAL ---
+  trabaja_actualmente   String?      @db.VarChar(10)
+  lugar_trabajo         String?      @db.Text
+  cargo_trabajo         String?      @db.Text
+  horario_trabajo       String?      @db.Text
+
+  // --- V. ÁREA PERSONAL ---
+  tiempo_libre          String?      @db.Text
+  siente_consigo        String?      @db.VarChar(20)
+  siente_porque         String?      @db.Text
+  relacion_familia      String?      @db.VarChar(20)
+  relacion_porque       String?      @db.Text
+  conflictos_familia    String?      @db.VarChar(10)
+  conflictos_porque     String?      @db.Text
+  afecta_desempeño      String?      @db.Text
+  reaccion_problema     String?      @db.Text
+  recurre_a             String?      @db.Text
+
+  // --- VI. ÁREA ACADÉMICA ---
+  rend_semestre_ant     String?      @db.Text
+  promedio_mayor_14     String?      @db.VarChar(10)
+  concentra             String?      @db.VarChar(10)
+  dif_docente           String?      @db.Text
+  dif_trabajos          String?      @db.Text
+  asignaturas_desaprobadas String?   @db.Text
+  dificultades_estudio  String?      @db.Text
+  metodos_aprendizaje   String?      @db.Text
+  rend_auto             String?      @db.VarChar(50)
+  tecnicas_estudio      String?      @db.VarChar(10)
+  mencion_tecnicas      String?      @db.Text
+
+  // --- VII. ÁREA PROFESIONAL ---
+  satisfecho_carrera    String?      @db.VarChar(10)
+  porque_satisfecho     String?      @db.Text
+  expectativas_escuela  String?      @db.Text
+  competencias_carrera  String?      @db.Text
+  identificado_escuela  String?      @db.Text
+  mejoras_escuela       String?      @db.Text
+
+  // --- CAMPOS ORIGINALES (F04) ---
+  motivo_consulta       String?      @db.Text
+  desarrollo_entrevista String?      @db.Text
+  acuerdos_compromisos  String?      @db.Text
+  observaciones         String?      @db.Text
+
+  // --- FIRMAS ---
+  firma_estudiante_url  String?      @db.Text
+  firma_tutor_url       String?      @db.Text
+
+  // RELACIONES (Usa nombres diferentes a las columnas _id) [cite: 32, 33]
+  estudiante_rel        estudiantes? @relation(fields: [estudiante_id], references: [id], onDelete: Cascade)
+  tutor_rel             tutores?     @relation(fields: [tutor_id], references: [id])
+}
+
+model derivaciones {
+  id                  Int          @id @default(autoincrement())
+  estudiante_id       Int?
+  tutor_id            Int?
+  fecha_solicitud     DateTime?    @default(now()) @db.Timestamp(6)
+  motivo_derivacion   String?
+  area_destino        String?      @db.VarChar(100)
+  estado_tramite      String?      @default("Pendiente") @db.VarChar(50)
+  oficio_numero       String?      @db.VarChar(50)
+  visto_bueno_jefa    Boolean?     @default(false)
+  fecha_firma_jefa    DateTime?    @db.Timestamp(6)
+  fecha_nacimiento    DateTime?    @db.Date
+  edad                Int?
+  semestre            String?      @db.VarChar(20)
+  celular             String?      @db.VarChar(15)
+  correo_estudiante   String?      @db.VarChar(150)
+  escuela_profesional String?      @db.VarChar(100)
+  nombre_tutor_deriva String?      @db.VarChar(255)
+  firma_tutor_url     String?
+  tipo_formato        String?      @default("F05") @db.VarChar(10)
+  estudiantes         estudiantes? @relation(fields: [estudiante_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tutores             tutores?     @relation(fields: [tutor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model calendario_tutorias {
+  id                Int          @id @default(autoincrement())
+  estudiante_id     Int?
+  tutor_id          Int?
+  titulo_cita       String       @db.VarChar(255)
+  descripcion       String?
+  fecha_hora_inicio DateTime     @db.Timestamp(6)
+  fecha_hora_fin    DateTime     @db.Timestamp(6)
+  lugar             String?      @default("Oficina de Tutoría") @db.VarChar(100)
+  estado            String?      @default("Programada") @db.VarChar(20)
+  enlace_virtual    String?      @db.VarChar(255)
+  estudiantes       estudiantes? @relation(fields: [estudiante_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tutores           tutores?     @relation(fields: [tutor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+// --- AGREGAR AL FINAL DE schema.prisma ---
+
+model Eventos {
+  id          Int      @id @default(autoincrement())
+  titulo      String
+  descripcion String?
+  inicio      DateTime
+  fin         DateTime
+  tipo        String   // 'GLOBAL' (Admin) o 'PERSONAL' (Tutor)
+  color       String?  // Para diferenciar visualmente
+  creador_id  Int      // ID del usuario que lo creó
+  
+  @@map("eventos")
+}
+// --- NUEVO MODELO PARA INFORMES DE TUTORES ---
+model informes_semestrales {
+  id                Int      @id @default(autoincrement())
+  tutor_id          Int
+  semestre          String?  @default("2025-I") @db.VarChar(20)
+  fecha_envio       DateTime @default(now())
+  
+  // ... tus otros campos ...
+  total_estudiantes Int?     @default(0)
+  total_atendidos   Int?     @default(0)
+  total_riesgo      Int?     @default(0)
+  avance_porcentaje Int?     @default(0)
+  observaciones     String?  @db.Text
+  estado            String?  @default("ENVIADO") @db.VarChar(20)
+  
+  // --- NUEVO CAMPO ---
+  archivo_url       String?  @db.VarChar(255) // Para guardar el PDF/Word adjunto
+  // -------------------
+
+  created_at        DateTime @default(now())
+}
+
+  // Relación con Tutor (opcional si quieres unir tablas)
+  // tutor             tutores @relation(fields: [tutor_id], references: [id]) 

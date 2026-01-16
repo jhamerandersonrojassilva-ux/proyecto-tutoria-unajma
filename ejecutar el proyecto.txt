@@ -1,0 +1,20 @@
+Pasos para una prueba exitosa
+Para que el sistema funcione al 100% con los formatos 02, 04 y 05, recuerda tener dos terminales funcionando en paralelo:
+
+Terminal 1 (Backend):
+
+Ubicación: F:\proyecto-tutoria-unajma
+
+Comando: node index.js
+
+Mantiene vivo el acceso a la base de datos PostgreSQL.
+
+Terminal 2 (Frontend):
+
+Ubicación: F:\proyecto-tutoria-unajma\frontend
+
+Comando: npm run dev
+
+Mantiene viva la interfaz visual para el tutor.
+
+¿Lograste entrar ahora al enlace de http://localhost:5

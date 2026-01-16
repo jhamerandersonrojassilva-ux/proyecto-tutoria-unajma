@@ -1,0 +1,26 @@
+/* App.css (Reemplaza todo el contenido con esto) */
+
+/* 1. Asegura que la raíz ocupe toda la pantalla */
+#root {
+  max-width: none !important; /* QUITA EL LÍMITE DE ANCHO */
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100vw;
+  height: 100vh;
+  text-align: left; /* Corrige la alineación centrada por defecto */
+}
+
+/* 2. Reseteo básico para body y html */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden; /* Evita doble scroll */
+}
+
+/* 3. Asegura que todos los elementos respeten el padding/borde en el ancho */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
