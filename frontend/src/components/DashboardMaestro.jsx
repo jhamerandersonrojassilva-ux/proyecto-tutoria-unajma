@@ -4,7 +4,7 @@ import ModalFichaIntegral from './ModalFichaIntegral';
 import ModalHistorial from './ModalHistorial'; 
 import api from '../api/axios';
 import { toast } from 'sonner';
-import Swal from 'sweetalert2'; // Librería para el Modal de Bloqueo
+import Swal from 'sweetalert2'; 
 import { generarF01 } from '../utils/generadorF01';
 
 // --- UTILIDADES DE FECHA Y HORA ---
@@ -40,7 +40,7 @@ export default function DashboardMaestro({
     onEliminarRegistro,
     onAbrirModalGrupal,
     onNuevaFichaEntrevista,
-    bloqueado // <--- 🔒 RECIBIMOS EL ESTADO DE BLOQUEO DESDE APP.JSX
+    bloqueado 
 }) {
     // --- ESTADOS ---
     const [enfoqueDerecho, setEnfoqueDerecho] = useState(null);
@@ -63,7 +63,7 @@ export default function DashboardMaestro({
     
     const escuelasDisponibles = ["Todas", "Ingeniería de Sistemas", "Administración", "Contabilidad", "Educación"];
 
-    // --- EFECTO: MODAL DE BLOQUEO AL ENTRAR (AGRESIVO) ---
+    // --- EFECTO: MODAL DE BLOQUEO ---
     useEffect(() => {
         if (bloqueado) {
             Swal.fire({
@@ -79,13 +79,10 @@ export default function DashboardMaestro({
                                 <li>🚫 No puede realizar derivaciones.</li>
                             </ul>
                         </div>
-                        <p style="font-size:13px; color:#dc2626; font-weight:bold;">
-                            * Si necesita corregir algo, solicite al Administrador que le "Devuelva" el informe.
-                        </p>
                     </div>
                 `,
                 icon: 'warning',
-                confirmButtonText: 'Entendido, modo lectura',
+                confirmButtonText: 'Entendido',
                 confirmButtonColor: '#64748b', 
                 allowOutsideClick: false, 
                 allowEscapeKey: false,    
@@ -141,7 +138,7 @@ export default function DashboardMaestro({
         }
     }, [estudiantes, user]);
 
-    // --- FUNCIONES PROTEGIDAS CON BLOQUEO ---
+    // --- FUNCIONES ---
     const eliminarSesion = async (idSesion) => {
         if (bloqueado) return Swal.fire('Bloqueado', 'Panel en modo lectura.', 'error');
         if (!idSesion) return toast.error("ID no válido");
@@ -217,6 +214,7 @@ export default function DashboardMaestro({
        } catch (error) { console.error("Error al refrescar historial:", error); }
     };
 
+    // --- FUNCIÓN DE GUARDADO DEFINITIVA (ROBUSTA) ---
     const guardarFichaF01 = async (datosFicha) => {
         if (bloqueado) return Swal.fire('Bloqueado', 'Panel en modo lectura.', 'error');
         
@@ -228,25 +226,58 @@ export default function DashboardMaestro({
             if (typeof datosFicha.desarrollo_entrevista === 'string') {
                 try { datosCompletos = { ...datosCompletos, ...JSON.parse(datosFicha.desarrollo_entrevista) }; } catch (e) {}
             }
+            // Aseguramos estructura
             if (!Array.isArray(datosCompletos.familiares)) datosCompletos.familiares = [];
 
+            // Identificamos si es edición o creación
             const idSesion = sesionF01Editar?.id || datosFicha.id || null;
+
             const payload = {
-                id: idSesion, estudiante_id: idEstudiante, tutor_id: idTutor,
-                tipo_formato: 'F01', motivo_consulta: 'Ficha Integral', fecha: new Date().toISOString(),
+                id: idSesion, // Si es null, el backend crea nuevo
+                estudiante_id: idEstudiante, 
+                tutor_id: idTutor,
+                tipo_formato: 'F01', 
+                motivo_consulta: 'Ficha Integral', 
+                fecha: new Date().toISOString(),
                 acuerdos_compromisos: datosCompletos.acuerdos_compromisos || "",
                 observaciones: datosCompletos.observaciones || "",
-                firma_tutor_url: datosCompletos.firma_tutor_url, firma_estudiante_url: datosCompletos.firma_estudiante_url,
-                desarrollo_entrevista: datosCompletos
+                firma_tutor_url: datosCompletos.firma_tutor_url, 
+                firma_estudiante_url: datosCompletos.firma_estudiante_url,
+                desarrollo_entrevista: JSON.stringify(datosCompletos)
             };
 
-            if (idSesion) await api.put(`/sesiones/${idSesion}`, payload);
-            else await api.post('/sesiones', payload);
+            // Lógica de recuperación ante errores (Fallback)
+            if (idSesion) {
+                try {
+                    // Intento 1: Actualizar
+                    await api.put(`/sesiones/${idSesion}`, payload);
+                } catch (putError) {
+                    // Si falla porque no existe (404), creamos uno nuevo
+                    if (putError.response && putError.response.status === 404) {
+                        console.warn("La sesión no existía, creando nueva...");
+                        delete payload.id; // Importante: quitar ID para que sea POST
+                        await api.post('/sesiones', payload);
+                    } else {
+                        throw putError; // Otro error, lanzar
+                    }
+                }
+            } else {
+                // Crear nuevo directo
+                await api.post('/sesiones', payload);
+            }
 
-            toast.success("Ficha guardada");
+            toast.success("Ficha guardada exitosamente");
             setMostrarModalF01(false);
-            setTimeout(() => { if(onEliminarRegistro) window.location.reload(); }, 800);
-        } catch (error) { toast.error("Error guardando ficha"); }
+
+            // RECARGA COMPLETA PARA SINCRONIZAR VISUALIZACIÓN (SOLUCIÓN DEFINITIVA A 'F5')
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+
+        } catch (error) { 
+            console.error("Error crítico guardando ficha:", error);
+            toast.error("Error al guardar. Verifique su conexión."); 
+        }
     };
     
     const guardarNuevaClave = async (e) => {
@@ -278,6 +309,40 @@ export default function DashboardMaestro({
 
     const sesiones = enfoqueDerecho?.sesiones || [];
     const fichaF01 = sesiones.find(s => s.tipo_formato === 'F01');
+
+    // --- HELPER: Obtener correo seguro ---
+    const obtenerCorreoReal = (est, f01) => {
+        // Prioridad BD
+        if (est.correo_institucional) return est.correo_institucional;
+        if (est.email) return est.email;
+        if (est.correo) return est.correo;
+        // Prioridad Ficha F01
+        if (f01 && f01.desarrollo_entrevista) {
+            try {
+                const data = typeof f01.desarrollo_entrevista === 'string' ? JSON.parse(f01.desarrollo_entrevista) : f01.desarrollo_entrevista;
+                if (data.correo_institucional) return data.correo_institucional;
+                if (data.correo) return data.correo;
+                if (data.email) return data.email;
+            } catch(e) {}
+        }
+        return "Sin correo registrado";
+    };
+
+    // --- HELPER: Obtener Emergencia Seguro ---
+    const obtenerDatosEmergencia = (f01) => {
+        if (!f01 || !f01.desarrollo_entrevista) return null;
+        try {
+            const d = typeof f01.desarrollo_entrevista === 'string' ? JSON.parse(f01.desarrollo_entrevista) : f01.desarrollo_entrevista;
+            const nombre = d.contacto_emergencia || d.referencia_emergencia || d.nombre_emergencia;
+            const telf = d.tel_emergencia || d.telefono_emergencia || d.celular_emergencia;
+            
+            if(!nombre && !telf) return null;
+            return { nombre: nombre || 'Sin nombre', telefono: telf || 'Sin N°' };
+        } catch(e) { return null; }
+    };
+
+    const correoVisible = enfoqueDerecho ? obtenerCorreoReal(enfoqueDerecho, fichaF01) : '';
+    const datosEmergencia = enfoqueDerecho ? obtenerDatosEmergencia(fichaF01) : null;
     
     return (
         <div style={styles.dashboardContainer}>
@@ -290,7 +355,7 @@ export default function DashboardMaestro({
                 </div>
             </div>
 
-            {/* --- ESCUDO DE BLOQUEO (BANNER VISIBLE SIEMPRE SI ESTÁ BLOQUEADO) --- */}
+            {/* --- ESCUDO DE BLOQUEO --- */}
             {bloqueado && (
                 <div style={styles.bannerBloqueo}>
                     <div style={{ fontSize: '36px', marginRight: '20px' }}>🛡️</div>
@@ -327,7 +392,6 @@ export default function DashboardMaestro({
                         <div style={styles.panelActions}>
                             <select value={filtroEscuela} onChange={(e) => setFiltroEscuela(e.target.value)} style={styles.selectFilter}>{escuelasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}</select>
                             
-                            {/* BOTÓN GRUPAL BLOQUEADO */}
                             <button 
                                 onClick={onAbrirModalGrupal} 
                                 disabled={bloqueado} 
@@ -342,7 +406,6 @@ export default function DashboardMaestro({
                         </div>
                     </div>
                     <div style={styles.tableContainer}>
-                        {/* PASAMOS EL CANDADO A LA TABLA */}
                         <TablaEstudiantes
                             estudiantes={estudiantesFiltrados}
                             bloqueado={bloqueado} 
@@ -413,6 +476,19 @@ export default function DashboardMaestro({
                                     <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
                                         {enfoqueDerecho.escuela_profesional || "Ingeniería de Sistemas"}
                                     </div>
+                                    
+                                    {/* CORREO SIEMPRE VISIBLE - BUSQUEDA ESTRICTA SIN INVENTAR */}
+                                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display:'flex', alignItems:'center', gap:'5px' }}>
+                                        📧 <span>{correoVisible}</span>
+                                    </div>
+
+                                    {/* EMERGENCIA (SI EXISTE EN F01) */}
+                                    {datosEmergencia && (
+                                        <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', display:'flex', alignItems:'center', gap:'5px', fontWeight:'600' }}>
+                                            🆘 <span>{`${datosEmergencia.nombre} (${datosEmergencia.telefono})`}</span>
+                                        </div>
+                                    )}
+
                                 </div>
                             </div>
 
@@ -445,18 +521,9 @@ export default function DashboardMaestro({
                                 return (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                         <div style={styles.infoCard}>
-                                            <div style={styles.cardHeader}>📞 Contacto</div>
+                                            <div style={styles.cardHeader}>📞 Contacto Adicional</div>
                                             <div style={styles.infoGrid}>
                                                 <div><label style={styles.infoLabel}>Celular</label><div style={styles.infoValue}>{datos.celular || datos.telefono || '--'}</div></div>
-                                                
-                                                {/* CORRECCIÓN: VISUALIZACIÓN ROBUSTA DEL CORREO */}
-                                                <div>
-                                                    <label style={styles.infoLabel}>Correo</label>
-                                                    <div style={styles.infoValue}>
-                                                        {datos.correo || datos.email || enfoqueDerecho.correo || enfoqueDerecho.email || enfoqueDerecho.correo_institucional || '--'}
-                                                    </div>
-                                                </div>
-
                                                 <div style={{gridColumn: 'span 2'}}><label style={styles.infoLabel}>Dirección</label><div style={styles.infoValue}>{datos.direccion_actual || datos.direccion || '--'}</div></div>
                                             </div>
                                         </div>
@@ -469,6 +536,17 @@ export default function DashboardMaestro({
                                                 <div><label style={styles.infoLabel}>Estado Civil</label><div style={styles.infoValue}>{datos.estado_civil || 'Soltero(a)'}</div></div>
                                             </div>
                                         </div>
+
+                                        {/* TARJETA DE EMERGENCIA EN EL CUERPO */}
+                                        {datosEmergencia && (
+                                            <div style={{ ...styles.infoCard, borderLeft: '3px solid #ef4444' }}>
+                                                <div style={{ ...styles.cardHeader, color: '#ef4444' }}>🚨 En caso de Emergencia</div>
+                                                <div style={styles.infoGrid}>
+                                                    <div style={{gridColumn: 'span 2'}}><label style={styles.infoLabel}>Contacto</label><div style={styles.infoValue}>{datosEmergencia.nombre}</div></div>
+                                                    <div><label style={styles.infoLabel}>Teléfono</label><div style={{...styles.infoValue, fontWeight:'bold'}}>{datosEmergencia.telefono}</div></div>
+                                                </div>
+                                            </div>
+                                        )}
 
                                         <button 
                                             onClick={() => abrirExpediente(enfoqueDerecho)}
