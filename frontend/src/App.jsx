@@ -18,7 +18,7 @@ import ModalFichaEntrevista from './components/ModalFichaEntrevista';
 
 // --- LIBRERÍA DE NOTIFICACIONES ---
 import { Toaster, toast } from 'sonner';
-import Swal from 'sweetalert2'; // Asegúrate de tener esto importado
+import Swal from 'sweetalert2'; 
 
 // --- UTILIDADES Y GENERADORES ---
 import { generarF01 } from './utils/generadorF01';
@@ -65,7 +65,6 @@ function App() {
 
   const [datosPendientesPDF, setDatosPendientesPDF] = useState(null);
   const [vistaActual, setVistaActual] = useState('dashboard');
-
   // --- FUNCIÓN LOGIN ---
   const handleLogin = async (username, password) => {
     try {
@@ -99,6 +98,8 @@ function App() {
   };
 
   useEffect(() => {
+    let intervaloPolling;
+
     if (user && user.token) {
       cargarEstudiantes();
       const esAdmin = (user.roles?.nombre_rol === 'ADMIN') || (user.rol_id === 1);
@@ -106,25 +107,38 @@ function App() {
       if (esAdmin && vistaActual !== 'admin') {
         setVistaActual('admin');
       } else if (!esAdmin) {
-        // Verificar estado del informe al cargar la app (Persistencia)
-        verificarEstadoInforme(user.tutor_id || user.id);
+        // LÓGICA DE ACTUALIZACIÓN AUTOMÁTICA (POLLING)
+        const tutorId = user.tutor_id || user.id;
+        
+        // 1. Verificación inmediata al cargar
+        verificarEstadoInforme(tutorId);
+
+        // 2. Verificación periódica cada 3 segundos
+        // Esto hace que si el admin devuelve el informe, el botón cambie solo.
+        intervaloPolling = setInterval(() => {
+            verificarEstadoInforme(tutorId);
+        }, 3000); 
       }
     }
+
+    // Limpieza: Detener el reloj cuando se cierre sesión o cambie el usuario
+    return () => {
+        if (intervaloPolling) clearInterval(intervaloPolling);
+    };
   }, [user]);
 
-  // --- NUEVA FUNCIÓN: VERIFICAR SI YA ENVIÓ ---
+  // --- FUNCIÓN ACTUALIZADA: VERIFICAR SI YA ENVIÓ ---
   const verificarEstadoInforme = async (tutorId) => {
     if (!tutorId) return;
     try {
         const res = await api.get(`/tutores/${tutorId}/estado-informe`);
-        if (res.data.enviado) {
-            setInformeEnviado(true);
-        }
+        // IMPORTANTE: Actualizamos el estado directamente con lo que diga el servidor.
+        // Si el admin lo borró, res.data.enviado será false y el botón cambiará.
+        setInformeEnviado(!!res.data.enviado); 
     } catch (error) {
         console.error("No se pudo verificar estado informe", error);
     }
   };
-
   const convertirUrlABase64 = async (url) => {
     try {
       const response = await fetch(url);
@@ -194,8 +208,13 @@ function App() {
         if (estFresco) setEstudianteSeleccionado(estFresco);
       }
     } catch (err) {
-      if (err.response?.status === 401) handleLogout();
-      if (err.response?.status !== 404) console.error("Error al cargar estudiantes:", err);
+      console.error("Error al cargar estudiantes:", err);
+      
+      // --- MANEJO DE SESIÓN EXPIRADA ---
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+          toast.error("Tu sesión ha expirado. Por favor ingresa nuevamente.");
+          handleLogout(); 
+      }
     }
   };
 
@@ -259,7 +278,6 @@ function App() {
       toast.error("No se pudo cargar el historial.");
     }
   };
-
   const manejarGuardarGrupal = async (datos) => {
     try {
       const formData = new FormData();
@@ -348,7 +366,7 @@ function App() {
 
     try {
       let ruta = registro.tipo_formato === 'F02' ? `/sesiones-grupales/${registro.id}` : 
-                 (registro.tipo_formato === 'F05' || registro.tipo_formato === 'Derivación' ? `/derivaciones/${registro.id}` : `/sesiones/${registro.id}`);
+               (registro.tipo_formato === 'F05' || registro.tipo_formato === 'Derivación' ? `/derivaciones/${registro.id}` : `/sesiones/${registro.id}`);
 
       const res = await api.delete(ruta);
 
@@ -362,7 +380,6 @@ function App() {
       toast.error("No se pudo eliminar el registro", { id: toastId });
     }
   };
-
   const manejarGuardarSesion = async (datos) => {
     try {
       const esDerivacion = datos.tipo_formato === 'F05';
@@ -471,7 +488,6 @@ function App() {
       }
     } catch (err) { toast.error("No se pudieron guardar los cambios"); return false; }
   };
-  
   // --- ESCUDO DE SEGURIDAD ---
   if (!user) {
     return (
@@ -482,10 +498,8 @@ function App() {
     );
   }
 
-  // --- FUNCIÓN REMITIR INFORME (Con Modal y Actualización Instantánea) ---
   // --- FUNCIÓN REMITIR INFORME (FORMAL: TEXTO + ARCHIVO) ---
   const handleRemitirInforme = async () => {
-    // Usamos HTML dentro de SweetAlert para crear un formulario completo
     const { value: formValues } = await Swal.fire({
       title: '📤 Remitir Informe Final',
       html: `
@@ -504,7 +518,6 @@ function App() {
       confirmButtonColor: '#0f172a',
       focusConfirm: false,
       preConfirm: () => {
-        // Capturamos los valores manualmente
         return {
           observaciones: document.getElementById('swal-obs').value,
           archivo: document.getElementById('swal-file').files[0]
@@ -512,18 +525,16 @@ function App() {
       }
     });
 
-    if (!formValues) return; // Si cancela
+    if (!formValues) return;
 
     const toastId = toast.loading("Enviando informe y archivos...");
 
     try {
-      // Cálculo de estadísticas
       const totalEstudiantes = estudiantes.length;
       const atendidos = estudiantes.filter(e => e.sesiones && e.sesiones.length > 0).length;
       const enRiesgo = estudiantes.filter(e => e.sesiones?.some(s => s.tipo_formato === 'F05')).length;
       const avance = totalEstudiantes > 0 ? Math.round((atendidos / totalEstudiantes) * 100) : 0;
 
-      // Usamos FormData para enviar archivos
       const formData = new FormData();
       formData.append('tutor_id', user.tutor_id || user.id);
       formData.append('semestre', '2025-I');
@@ -611,29 +622,41 @@ function App() {
                 {!esAdmin && (
                   <>
                     {informeEnviado ? (
-                        <div style={{
-                            ...styles.navItem,
-                            marginTop: '30px',
-                            backgroundColor: '#10b981', // Verde éxito
-                            color: 'white',
-                            fontWeight: 'bold',
-                            justifyContent: 'center',
-                            cursor: 'default',
-                            opacity: 0.9
-                        }}>
+                        <div 
+                            onClick={() => {
+                                Swal.fire({
+                                    title: '✅ Informe Enviado',
+                                    text: 'Ya has remitido tu informe semestral. Está pendiente de revisión por el Administrador.',
+                                    icon: 'info',
+                                    confirmButtonColor: '#10b981'
+                                });
+                            }}
+                            style={{
+                                ...styles.navItem,
+                                marginTop: '30px',
+                                backgroundColor: '#10b981', 
+                                color: 'white',
+                                fontWeight: 'bold',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                opacity: 1,
+                                boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)'
+                            }}
+                        >
                             <span style={{ marginRight: '12px' }}>✅</span> Informe Enviado
                         </div>
                     ) : (
                         <div
                             onClick={handleRemitirInforme}
                             style={{
-                            ...styles.navItem,
-                            marginTop: '30px',
-                            backgroundColor: '#f59e0b', // Naranja acción
-                            color: 'white',
-                            fontWeight: 'bold',
-                            justifyContent: 'center',
-                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                                ...styles.navItem,
+                                marginTop: '30px',
+                                backgroundColor: '#f59e0b', 
+                                color: 'white',
+                                fontWeight: 'bold',
+                                justifyContent: 'center',
+                                boxShadow: '0 4px 6px rgba(245, 158, 11, 0.2)',
+                                cursor: 'pointer'
                             }}
                         >
                             <span style={{ marginRight: '12px' }}>📤</span> Remitir Informe
@@ -660,7 +683,7 @@ function App() {
           <DashboardMaestro
             user={user}
             estudiantes={estudiantes}
-            // --- MANEJADORES DE ACCIONES DEL TUTOR ---
+            bloqueado={informeEnviado} // <--- PASAMOS EL BLOQUEO AQUÍ
             onNuevaSesion={(est) => { setEstudianteSeleccionado(est); setSesionAEditarEnModal(null); setMostrarModalRegistro(true); }}
             onDerivar={(est, sesion = null) => {
               setEstudianteSeleccionado(est);

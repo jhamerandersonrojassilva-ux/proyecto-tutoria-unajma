@@ -9,11 +9,12 @@ export default function TablaEstudiantes({
   onNuevaFichaIntegral, 
   onNuevaFichaEntrevista, 
   onSeleccionar, 
-  estudianteActivoId 
+  estudianteActivoId,
+  bloqueado // 🔒 NUEVA PROP RECIBIDA
 }) {
   return (
     // IMPORTANTE: El contenedor debe tener una altura definida (o flex: 1) para que el sticky funcione dentro de él
-    <div style={{ overflowX: 'auto', marginTop: '10px', height: '100%',width: '100%', position: 'relative' }}>
+    <div style={{ overflowX: 'auto', marginTop: '10px', height: '100%', width: '100%', position: 'relative' }}>
       <table style={styles.table}>
         <thead style={styles.theadSticky}>
           <tr style={styles.headerRow}>
@@ -106,38 +107,76 @@ export default function TablaEstudiantes({
                     </div>
                   </td>
 
-                  {/* 8. GESTIÓN */}
+                  {/* 8. GESTIÓN (BOTONES CON BLOQUEO) */}
                   <td style={styles.tdCenter}>
                     <div style={styles.actionGroup}>
-                       <button onClick={(e) => { e.stopPropagation(); if(onNuevaFichaIntegral) onNuevaFichaIntegral(est); }} 
-                               title="Ficha Integral"
-                               style={btnStyle(tieneF01 ? '#64748b' : '#16a34a')}>
-                         {tieneF01 ? 'Ver F01' : '+ F01'}
-                       </button>
-                       
-                       <button onClick={(e) => { e.stopPropagation(); if(onNuevaFichaEntrevista) onNuevaFichaEntrevista(est); }} 
-                               title="Nueva Entrevista"
-                               style={btnStyle('#3b82f6')}>
-                         + F03
-                       </button>
+                        {/* F01: Ficha Integral */}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); if(onNuevaFichaIntegral) onNuevaFichaIntegral(est); }} 
+                            disabled={bloqueado} // 🔒 BLOQUEADO
+                            title="Ficha Integral"
+                            style={{
+                                ...btnStyle(tieneF01 ? '#64748b' : '#16a34a'),
+                                opacity: bloqueado ? 0.5 : 1, 
+                                cursor: bloqueado ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                          {tieneF01 ? 'Ver F01' : '+ F01'}
+                        </button>
+                        
+                        {/* F03: Entrevista */}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); if(onNuevaFichaEntrevista) onNuevaFichaEntrevista(est); }} 
+                            disabled={bloqueado} // 🔒 BLOQUEADO
+                            title="Nueva Entrevista"
+                            style={{
+                                ...btnStyle('#3b82f6'),
+                                opacity: bloqueado ? 0.5 : 1, 
+                                cursor: bloqueado ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                          + F03
+                        </button>
 
-                       <button onClick={(e) => { e.stopPropagation(); if(onNuevaSesion) onNuevaSesion(est); }} 
-                               title="Seguimiento"
-                               style={btnStyle('#6366f1')}>
-                         + F04
-                       </button>
+                        {/* F04: Seguimiento */}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); if(onNuevaSesion) onNuevaSesion(est); }} 
+                            disabled={bloqueado} // 🔒 BLOQUEADO
+                            title="Seguimiento"
+                            style={{
+                                ...btnStyle('#6366f1'),
+                                opacity: bloqueado ? 0.5 : 1, 
+                                cursor: bloqueado ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                          + F04
+                        </button>
 
-                       <button onClick={(e) => { e.stopPropagation(); if(onDerivar) onDerivar(est); }} 
-                               title="Derivación"
-                               style={btnStyle('#ef4444')}>
-                         F05
-                       </button>
+                        {/* F05: Derivación */}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); if(onDerivar) onDerivar(est); }} 
+                            disabled={bloqueado} // 🔒 BLOQUEADO
+                            title="Derivación"
+                            style={{
+                                ...btnStyle('#ef4444'),
+                                opacity: bloqueado ? 0.5 : 1, 
+                                cursor: bloqueado ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                          F05
+                        </button>
 
-                       <button onClick={(e) => { e.stopPropagation(); if(onVerHistorial) onVerHistorial(est); }} 
-                               title="Ver Historial Completo"
-                               style={btnStyle('#475569')}>
-                         Historial
-                       </button>
+                        {/* Historial (SIEMPRE ACTIVO) */}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); if(onVerHistorial) onVerHistorial(est); }} 
+                            title="Ver Historial Completo"
+                            style={{
+                                ...btnStyle('#475569'),
+                                cursor: 'pointer' // Siempre activo
+                            }}
+                        >
+                          Historial
+                        </button>
                     </div>
                   </td>
                 </tr>
@@ -201,7 +240,7 @@ const styles = {
   tr: { borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s', backgroundColor: 'white' },
   trActive: { borderBottom: '1px solid #cbd5e1', backgroundColor: '#eff6ff', cursor: 'pointer' },
   
-  td: { padding: '12px 16px', verticalAlign: 'middle', borderBottom: '1px solid #f1f5f9' }, // Añadido borde inferior directo a td
+  td: { padding: '12px 16px', verticalAlign: 'middle', borderBottom: '1px solid #f1f5f9' }, 
   tdCenter: { padding: '12px 16px', verticalAlign: 'middle', textAlign: 'center', borderBottom: '1px solid #f1f5f9' },
 
   profileCell: { display: 'flex', alignItems: 'center', gap: '12px' },

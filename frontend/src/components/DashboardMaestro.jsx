@@ -4,47 +4,26 @@ import ModalFichaIntegral from './ModalFichaIntegral';
 import ModalHistorial from './ModalHistorial'; 
 import api from '../api/axios';
 import { toast } from 'sonner';
+import Swal from 'sweetalert2'; // Librería para el Modal de Bloqueo
 import { generarF01 } from '../utils/generadorF01';
 
-// --- UTILIDADES DE FECHA Y HORA (CORREGIDAS PARA PERÚ) ---
-
+// --- UTILIDADES DE FECHA Y HORA ---
 const formatearFechaSegura = (fechaRaw) => {
     if (!fechaRaw) return "---";
     try {
         const fecha = new Date(fechaRaw);
-        // CORRECCIÓN CLAVE: Usar 'America/Lima' en lugar de 'UTC'
         return new Intl.DateTimeFormat('es-PE', {
-            day: '2-digit', 
-            month: 'short', 
-            year: 'numeric', 
-            timeZone: 'America/Lima' 
+            day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Lima' 
         }).format(fecha);
     } catch (error) { return "Pend."; }
-};
-
-const formatearHora = (fechaRaw) => {
-    if (!fechaRaw) return "";
-    try {
-        const fecha = new Date(fechaRaw);
-        // CORRECCIÓN: Forzar hora Perú
-        return fecha.toLocaleTimeString('es-PE', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            hour12: true, 
-            timeZone: 'America/Lima' 
-        });
-    } catch (e) { return ""; }
 };
 
 const esFechaHoy = (fechaRaw) => {
     if (!fechaRaw) return false;
     try {
-        // Comparamos cadenas de fecha en zona horaria Perú
         const options = { timeZone: 'America/Lima', year: 'numeric', month: 'numeric', day: 'numeric' };
-        
         const fechaRegistro = new Intl.DateTimeFormat('es-PE', options).format(new Date(fechaRaw));
         const fechaHoy = new Intl.DateTimeFormat('es-PE', options).format(new Date());
-
         return fechaRegistro === fechaHoy;
     } catch (e) { return false; }
 };
@@ -58,11 +37,10 @@ export default function DashboardMaestro({
     onNuevaFichaIntegral, 
     onEditarFicha, 
     onDescargarPDF, 
-    onEliminarFicha, 
-    onGuardarGrupal, 
     onEliminarRegistro,
     onAbrirModalGrupal,
-    onNuevaFichaEntrevista
+    onNuevaFichaEntrevista,
+    bloqueado // <--- 🔒 RECIBIMOS EL ESTADO DE BLOQUEO DESDE APP.JSX
 }) {
     // --- ESTADOS ---
     const [enfoqueDerecho, setEnfoqueDerecho] = useState(null);
@@ -77,18 +55,46 @@ export default function DashboardMaestro({
     const [sesionF01Editar, setSesionF01Editar] = useState(null);
 
     // Estados UI
-    const [modalCambioClave, setModalCambioClave] = useState(false);
-    const [nuevaClave, setNuevaClave] = useState("");
     const [terminoBusqueda, setTerminoBusqueda] = useState('');
     const [filtroEscuela, setFiltroEscuela] = useState('Todas');
     const [filtroRapido, setFiltroRapido] = useState('Todos');
-    
-    // Paginación
-    const [paginaF04, setPaginaF04] = useState(1);
+    const [modalCambioClave, setModalCambioClave] = useState(false);
+    const [nuevaClave, setNuevaClave] = useState("");
     
     const escuelasDisponibles = ["Todas", "Ingeniería de Sistemas", "Administración", "Contabilidad", "Educación"];
 
-    // --- EFECTOS ---
+    // --- EFECTO: MODAL DE BLOQUEO AL ENTRAR (AGRESIVO) ---
+    useEffect(() => {
+        if (bloqueado) {
+            Swal.fire({
+                title: '🔒 ACCESO RESTRINGIDO',
+                html: `
+                    <div style="text-align:left; color:#334155; font-size:14px;">
+                        <p>Estimado Docente, usted ya ha <strong>remitido su informe final</strong>.</p>
+                        <p>El sistema se encuentra en modo <b>"Solo Lectura"</b> para auditoría.</p>
+                        <div style="background:#eff6ff; padding:10px; border-radius:6px; border:1px solid #bfdbfe; margin:10px 0;">
+                            <ul style="margin:0; padding-left:20px; color:#1e40af;">
+                                <li>🚫 No puede registrar nuevas sesiones.</li>
+                                <li>🚫 No puede editar fichas.</li>
+                                <li>🚫 No puede realizar derivaciones.</li>
+                            </ul>
+                        </div>
+                        <p style="font-size:13px; color:#dc2626; font-weight:bold;">
+                            * Si necesita corregir algo, solicite al Administrador que le "Devuelva" el informe.
+                        </p>
+                    </div>
+                `,
+                icon: 'warning',
+                confirmButtonText: 'Entendido, modo lectura',
+                confirmButtonColor: '#64748b', 
+                allowOutsideClick: false, 
+                allowEscapeKey: false,    
+                backdrop: `rgba(15, 23, 42, 0.8)` 
+            });
+        }
+    }, [bloqueado]);
+
+    // --- EFECTO: VERIFICAR CLAVE ---
     useEffect(() => {
         const usuarioStr = String(user?.usuario || "");
         const claveStr = String(user?.clave || "");
@@ -99,7 +105,10 @@ export default function DashboardMaestro({
         } else {
             setModalCambioClave(false);
         }
+    }, [user]);
 
+    // --- EFECTO: PROCESAR DATOS ---
+    useEffect(() => {
         const listaValida = Array.isArray(estudiantes) ? estudiantes : [];
         if (listaValida.length > 0) {
             const ordenados = [...listaValida].sort((a, b) => {
@@ -120,74 +129,38 @@ export default function DashboardMaestro({
                 });
             });
             setAgendaHoy(agenda);
-
+            
             if (enfoqueDerecho) {
-                const actualizado = listaValida.find(e => e.id === enfoqueDerecho.id);
-                if (actualizado) setEnfoqueDerecho(actualizado);
+               const actualizado = listaValida.find(e => e.id === enfoqueDerecho.id);
+               if (actualizado) setEnfoqueDerecho(actualizado);
             }
             if (mostrarModalHistorial && estudianteParaHistorial) {
-                const actualizado = listaValida.find(e => e.id === estudianteParaHistorial.id);
-                if (actualizado) setEstudianteParaHistorial(actualizado);
+               const actualizado = listaValida.find(e => e.id === estudianteParaHistorial.id);
+               if (actualizado) setEstudianteParaHistorial(actualizado);
             }
         }
     }, [estudiantes, user]);
-    // --- FUNCIONES AUXILIARES ---
-    const refrescarDatosHistorial = async () => {
-        if (!estudianteParaHistorial) return;
-        try {
-            const { data } = await api.get(`/sesiones/${estudianteParaHistorial.id}`);
-            setEstudianteParaHistorial(prev => ({ ...prev, sesiones: data }));
-            if (enfoqueDerecho && enfoqueDerecho.id === estudianteParaHistorial.id) {
-                setEnfoqueDerecho(prev => ({ ...prev, sesiones: data }));
-            }
-        } catch (error) {
-            console.error("Error al refrescar historial:", error);
-        }
-    };
 
-    // --- FUNCIONES PRINCIPALES ---
-    
-    // CORRECCIÓN PROFESIONAL: ELIMINAR SIN RECARGAR (NO BLINK)
+    // --- FUNCIONES PROTEGIDAS CON BLOQUEO ---
     const eliminarSesion = async (idSesion) => {
+        if (bloqueado) return Swal.fire('Bloqueado', 'Panel en modo lectura.', 'error');
         if (!idSesion) return toast.error("ID no válido");
-
-        // 1. Buscamos el objeto completo de la sesión para pasarlo al padre
-        // (App.jsx necesita el objeto para saber si es F02, F05, etc.)
-        const sesionEncontrada = estudianteParaHistorial?.sesiones?.find(s => s.id === idSesion) 
-                              || enfoqueDerecho?.sesiones?.find(s => s.id === idSesion);
         
-        // Si no lo encontramos, creamos un objeto mínimo
+        const sesionEncontrada = estudianteParaHistorial?.sesiones?.find(s => s.id === idSesion) || enfoqueDerecho?.sesiones?.find(s => s.id === idSesion);
         const registroAEliminar = sesionEncontrada || { id: idSesion, tipo_formato: 'F04' };
 
-        // 2. ACTUALIZACIÓN OPTIMISTA (VISUAL INMEDIATA)
-        // Quitamos el item de la lista localmente para que el usuario vea que "se fue" al instante
         if (mostrarModalHistorial && estudianteParaHistorial) {
-            setEstudianteParaHistorial(prev => ({
-                ...prev,
-                sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : []
-            }));
+            setEstudianteParaHistorial(prev => ({ ...prev, sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : [] }));
         }
         if (enfoqueDerecho) {
-            setEnfoqueDerecho(prev => ({
-                ...prev,
-                sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : []
-            }));
+            setEnfoqueDerecho(prev => ({ ...prev, sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : [] }));
         }
 
-        // 3. DELEGAR AL PADRE (App.jsx)
-        // 'onEliminarRegistro' hace la llamada a la API y luego actualiza 'estudiantes'
-        // lo que provoca que React actualice la tabla principal sin recargar la página.
         if (onEliminarRegistro) {
             await onEliminarRegistro(registroAEliminar);
         } else {
-            // Fallback de seguridad (por si acaso)
-            try {
-                await api.delete(`/sesiones/${idSesion}`);
-                toast.success("Registro eliminado");
-            } catch(e) { console.error(e); }
+            try { await api.delete(`/sesiones/${idSesion}`); toast.success("Registro eliminado"); } catch(e) { console.error(e); }
         }
-        
-        // ¡YA NO HACEMOS window.location.reload()!
     };
 
     const abrirExpediente = async (estudiante) => {
@@ -227,18 +200,30 @@ export default function DashboardMaestro({
             setMostrarModalF01(true);
         }
     };
-
+    
     const abrirHistorialLocal = (estudiante) => {
         setEstudianteParaHistorial(estudiante);
         setMostrarModalHistorial(true);
     };
+    
+    const refrescarDatosHistorial = async () => {
+       if (!estudianteParaHistorial) return;
+       try {
+           const { data } = await api.get(`/sesiones/${estudianteParaHistorial.id}`);
+           setEstudianteParaHistorial(prev => ({ ...prev, sesiones: data }));
+           if (enfoqueDerecho && enfoqueDerecho.id === estudianteParaHistorial.id) {
+               setEnfoqueDerecho(prev => ({ ...prev, sesiones: data }));
+           }
+       } catch (error) { console.error("Error al refrescar historial:", error); }
+    };
 
     const guardarFichaF01 = async (datosFicha) => {
+        if (bloqueado) return Swal.fire('Bloqueado', 'Panel en modo lectura.', 'error');
+        
         try {
             const idEstudiante = parseInt(estudianteParaFicha?.id);
             const idTutor = parseInt(user?.tutor_id || user?.id);
-            if (isNaN(idEstudiante)) return toast.error("Error IDs");
-
+            
             let datosCompletos = { ...datosFicha };
             if (typeof datosFicha.desarrollo_entrevista === 'string') {
                 try { datosCompletos = { ...datosCompletos, ...JSON.parse(datosFicha.desarrollo_entrevista) }; } catch (e) {}
@@ -259,18 +244,11 @@ export default function DashboardMaestro({
             else await api.post('/sesiones', payload);
 
             toast.success("Ficha guardada");
-            // El modal ya descarga el PDF, aquí solo cerramos
-            
             setMostrarModalF01(false);
-            // Pequeño timeout para refrescar datos suavemente
-            setTimeout(() => {
-                 if(onEliminarRegistro) { /* Truco: Podríamos llamar a refrescar aquí, pero con reload suave basta si es F01 */ 
-                    window.location.reload(); 
-                 }
-            }, 800);
+            setTimeout(() => { if(onEliminarRegistro) window.location.reload(); }, 800);
         } catch (error) { toast.error("Error guardando ficha"); }
     };
-
+    
     const guardarNuevaClave = async (e) => {
         e.preventDefault();
         if (nuevaClave.length < 6) return toast.warning("Mínimo 6 caracteres");
@@ -300,6 +278,7 @@ export default function DashboardMaestro({
 
     const sesiones = enfoqueDerecho?.sesiones || [];
     const fichaF01 = sesiones.find(s => s.tipo_formato === 'F01');
+    
     return (
         <div style={styles.dashboardContainer}>
             {/* Header */}
@@ -310,6 +289,20 @@ export default function DashboardMaestro({
                     <input type="text" placeholder="Buscar estudiante..." style={styles.searchInput} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} />
                 </div>
             </div>
+
+            {/* --- ESCUDO DE BLOQUEO (BANNER VISIBLE SIEMPRE SI ESTÁ BLOQUEADO) --- */}
+            {bloqueado && (
+                <div style={styles.bannerBloqueo}>
+                    <div style={{ fontSize: '36px', marginRight: '20px' }}>🛡️</div>
+                    <div>
+                        <h3 style={{ margin: '0 0 5px 0', color: '#1e3a8a', fontSize:'18px' }}>PANEL BLOQUEADO POR ENVÍO</h3>
+                        <p style={{ margin: 0, fontSize: '14px', color: '#1e40af', lineHeight: '1.4' }}>
+                            Usted ya ha remitido su informe semestral. El sistema está en <strong>"Solo Lectura"</strong>.<br/>
+                            <em>Para desbloquear, solicite al Administrador la devolución de su informe.</em>
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* KPIs */}
             <div style={styles.kpiGrid}>
@@ -333,13 +326,27 @@ export default function DashboardMaestro({
                         </div>
                         <div style={styles.panelActions}>
                             <select value={filtroEscuela} onChange={(e) => setFiltroEscuela(e.target.value)} style={styles.selectFilter}>{escuelasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}</select>
-                            <button onClick={onAbrirModalGrupal} style={styles.btnPrimary}>+ Grupal</button>
+                            
+                            {/* BOTÓN GRUPAL BLOQUEADO */}
+                            <button 
+                                onClick={onAbrirModalGrupal} 
+                                disabled={bloqueado} 
+                                style={{
+                                    ...styles.btnPrimary, 
+                                    backgroundColor: bloqueado ? '#94a3b8' : '#0f172a',
+                                    cursor: bloqueado ? 'not-allowed' : 'pointer'
+                                }}
+                            >
+                                {bloqueado ? '🔒 Bloqueado' : '+ Grupal'}
+                            </button>
                         </div>
                     </div>
                     <div style={styles.tableContainer}>
+                        {/* PASAMOS EL CANDADO A LA TABLA */}
                         <TablaEstudiantes
                             estudiantes={estudiantesFiltrados}
-                            onSeleccionar={(est) => { setEnfoqueDerecho(est); setPaginaF04(1); }}
+                            bloqueado={bloqueado} 
+                            onSeleccionar={(est) => { setEnfoqueDerecho(est); }}
                             estudianteActivoId={enfoqueDerecho?.id}
                             onNuevaSesion={onNuevaSesion}
                             onVerHistorial={abrirHistorialLocal} 
@@ -351,6 +358,7 @@ export default function DashboardMaestro({
                 </div>
 
                 <div style={styles.rightColumn}>
+                    {/* Agenda y Feed */}
                     <div style={styles.agendaPanel}>
                         <div style={styles.panelHeaderSimple}><h3 style={styles.panelTitle}>📅 Agenda de Hoy</h3></div>
                         <div style={styles.agendaList}>
@@ -409,11 +417,18 @@ export default function DashboardMaestro({
                             </div>
 
                             <div style={styles.actionRow}>
-                                <button onClick={() => onNuevaFichaEntrevista(enfoqueDerecho)} style={styles.btnAction}>
+                                <button 
+                                    onClick={() => onNuevaFichaEntrevista(enfoqueDerecho)} 
+                                    disabled={bloqueado}
+                                    style={{...styles.btnAction, opacity: bloqueado ? 0.5 : 1, cursor: bloqueado ? 'not-allowed' : 'pointer'}}
+                                >
                                     💬 Entrevista
                                 </button>
-                                <button onClick={() => abrirHistorialLocal(enfoqueDerecho)} style={styles.btnActionSec}>
-                                    🕒 Ver Historial Completo
+                                <button 
+                                    onClick={() => abrirHistorialLocal(enfoqueDerecho)} 
+                                    style={styles.btnActionSec}
+                                >
+                                    🕒 Historial
                                 </button>
                             </div>
 
@@ -433,7 +448,15 @@ export default function DashboardMaestro({
                                             <div style={styles.cardHeader}>📞 Contacto</div>
                                             <div style={styles.infoGrid}>
                                                 <div><label style={styles.infoLabel}>Celular</label><div style={styles.infoValue}>{datos.celular || datos.telefono || '--'}</div></div>
-                                                <div><label style={styles.infoLabel}>Correo</label><div style={styles.infoValue}>{datos.correo || enfoqueDerecho.correo_institucional || '--'}</div></div>
+                                                
+                                                {/* CORRECCIÓN: VISUALIZACIÓN ROBUSTA DEL CORREO */}
+                                                <div>
+                                                    <label style={styles.infoLabel}>Correo</label>
+                                                    <div style={styles.infoValue}>
+                                                        {datos.correo || datos.email || enfoqueDerecho.correo || enfoqueDerecho.email || enfoqueDerecho.correo_institucional || '--'}
+                                                    </div>
+                                                </div>
+
                                                 <div style={{gridColumn: 'span 2'}}><label style={styles.infoLabel}>Dirección</label><div style={styles.infoValue}>{datos.direccion_actual || datos.direccion || '--'}</div></div>
                                             </div>
                                         </div>
@@ -444,34 +467,20 @@ export default function DashboardMaestro({
                                                 <div><label style={styles.infoLabel}>DNI</label><div style={styles.infoValue}>{enfoqueDerecho.dni}</div></div>
                                                 <div><label style={styles.infoLabel}>Fecha Nac.</label><div style={styles.infoValue}>{formatearFechaSegura(datos.fecha_nacimiento)}</div></div>
                                                 <div><label style={styles.infoLabel}>Estado Civil</label><div style={styles.infoValue}>{datos.estado_civil || 'Soltero(a)'}</div></div>
-                                                <div><label style={styles.infoLabel}>Trabaja</label>
-                                                    <div style={styles.infoValue}>
-                                                        {datos.trabaja_actualmente === 'SI' || datos.trabaja_actualmente === true 
-                                                            ? <span style={{color: '#d97706', fontWeight:'bold'}}>SÍ TRABAJA</span> 
-                                                            : 'No'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div style={{ ...styles.infoCard, borderLeft: '3px solid #ef4444' }}>
-                                            <div style={{ ...styles.cardHeader, color: '#ef4444' }}>🚨 En caso de Emergencia</div>
-                                            <div style={styles.infoGrid}>
-                                                <div style={{gridColumn: 'span 2'}}><label style={styles.infoLabel}>Contacto</label><div style={styles.infoValue}>{datos.referencia_emergencia || datos.contacto_emergencia || '--'}</div></div>
-                                                <div><label style={styles.infoLabel}>Teléfono</label><div style={{...styles.infoValue, fontWeight:'bold'}}>{datos.tel_emergencia || '--'}</div></div>
                                             </div>
                                         </div>
 
                                         <button 
                                             onClick={() => abrirExpediente(enfoqueDerecho)}
+                                            disabled={bloqueado}
                                             style={{ 
                                                 width: '100%', padding: '10px', 
                                                 backgroundColor: '#fff', border: '1px dashed #cbd5e1', 
-                                                color: '#64748b', borderRadius: '8px', cursor: 'pointer',
-                                                fontSize: '12px', fontWeight: '600', marginTop: '10px'
+                                                color: '#64748b', borderRadius: '8px', cursor: bloqueado ? 'not-allowed' : 'pointer',
+                                                fontSize: '12px', fontWeight: '600', marginTop: '10px', opacity: bloqueado ? 0.6 : 1
                                             }}
                                         >
-                                            ✏️ Actualizar Ficha Integral
+                                            {bloqueado ? '🔒 Ficha Bloqueada' : '✏️ Actualizar Ficha Integral'}
                                         </button>
                                     </div>
                                 );
@@ -480,8 +489,12 @@ export default function DashboardMaestro({
                                     <div style={{ fontSize: '30px', marginBottom: '10px' }}>📄</div>
                                     <h4 style={{ margin: '0 0 5px 0', color: '#334155' }}>Sin Ficha Integral</h4>
                                     <p style={{ fontSize: '12px', color: '#94a3b8', margin: '0 0 15px 0' }}>El estudiante aún no ha registrado sus datos personales.</p>
-                                    <button onClick={() => abrirExpediente(enfoqueDerecho)} style={styles.btnAction}>
-                                        + Crear Ficha F01
+                                    <button 
+                                        onClick={() => abrirExpediente(enfoqueDerecho)} 
+                                        disabled={bloqueado}
+                                        style={{...styles.btnAction, opacity: bloqueado ? 0.5 : 1, cursor: bloqueado ? 'not-allowed' : 'pointer'}}
+                                    >
+                                        {bloqueado ? '🔒 Bloqueado' : '+ Crear Ficha F01'}
                                     </button>
                                 </div>
                             )}
@@ -490,6 +503,7 @@ export default function DashboardMaestro({
                 </div>
             )}
 
+            {/* MODALES */}
             {mostrarModalF01 && estudianteParaFicha && <ModalFichaIntegral estudiante={estudianteParaFicha} user={user} sesionAEditar={sesionF01Editar} onClose={() => { setMostrarModalF01(false); setEstudianteParaFicha(null); setSesionF01Editar(null); }} onGuardar={guardarFichaF01} />}
             
             {mostrarModalHistorial && estudianteParaHistorial && (
@@ -498,21 +512,16 @@ export default function DashboardMaestro({
                     historial={estudianteParaHistorial.sesiones || []}
                     onClose={() => setMostrarModalHistorial(false)}
                     onEliminar={eliminarSesion} 
-                    onRefrescar={refrescarDatosHistorial}
+                    onRefrescar={refrescarDatosHistorial} 
                     onEditar={(ses) => { 
-                        if (ses.tipo_formato === 'F01') {
-                            abrirExpediente(estudianteParaHistorial);
-                        } 
-                        else if (ses.tipo_formato === 'F03') {
-                            if (onEditarFicha) onEditarFicha(ses, estudianteParaHistorial);
-                            else toast.error("Función editar no disponible");
+                        if (bloqueado) {
+                            return Swal.fire('Bloqueado', 'El panel está en modo lectura.', 'error');
                         }
+                        if (ses.tipo_formato === 'F01') abrirExpediente(estudianteParaHistorial);
+                        else if (ses.tipo_formato === 'F02') { if (onEditarFicha) onEditarFicha(ses, estudianteParaHistorial); }
+                        else if (ses.tipo_formato === 'F03') { if (onEditarFicha) onEditarFicha(ses, estudianteParaHistorial); }
                         else if (ses.tipo_formato === 'F05' || ses.tipo_formato === 'Derivación') {
-                            if (onDerivar) {
-                                onDerivar(estudianteParaHistorial, ses);
-                            } else {
-                                toast.error("Función derivar no encontrada");
-                            }
+                            if (onDerivar) onDerivar(estudianteParaHistorial, ses);
                         }
                         else {
                             toast.info("Edición rápida no disponible aquí");
@@ -556,7 +565,7 @@ const styles = {
     chipContainer: { display: 'flex', gap: '8px' },
     panelActions: { display: 'flex', gap: '10px' },
     selectFilter: { padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' },
-    btnPrimary: { backgroundColor: '#0f172a', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', transition: 'background 0.2s' },
+    btnPrimary: { color: 'white', border: 'none', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', transition: 'background 0.2s' },
     tableContainer: { flex: 1, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' },
     rightColumn: { flex: 1, display: 'flex', flexDirection: 'column', gap: '15px', overflowY: 'auto' },
     agendaPanel: { backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', maxHeight: '45%' },
@@ -589,49 +598,21 @@ const styles = {
     btnAction: { flex: 1, padding: '8px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
     btnActionSec: { flex: 1, padding: '8px', backgroundColor: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' },
     divider: { height: '1px', backgroundColor: '#e2e8f0', marginBottom: '20px' },
-    sectionHeader: { fontSize: '11px', fontWeight: '800', color: '#1e293b', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '6px', marginTop: '20px', marginBottom: '10px', textTransform: 'uppercase', borderLeft: '3px solid #3b82f6' },
-    docCard: { padding: '12px', borderRadius: '8px', border: '1px solid #f1f5f9', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.01)' },
-    iconBtn: { border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '16px', padding: '4px' },
-    btnSmall: { padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', background: 'white' },
+    infoCard: { backgroundColor: '#fff', borderRadius: '10px', padding: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0' },
+    cardHeader: { fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', marginBottom: '10px', letterSpacing: '0.5px' },
+    infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', rowGap: '15px' },
+    infoLabel: { display: 'block', fontSize: '10px', color: '#94a3b8', fontWeight: '600', marginBottom: '2px' },
+    infoValue: { fontSize: '13px', color: '#1e293b', fontWeight: '500', wordBreak: 'break-word' },
+    
+    // ESTILO DEL ESCUDO (Banner)
+    bannerBloqueo: { 
+        backgroundColor: '#eff6ff', color: '#1e3a8a', padding: '20px', borderRadius: '12px', 
+        border: '2px solid #bfdbfe', marginBottom: '25px', display: 'flex', alignItems: 'center',
+        boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.1)'
+    },
     securityOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(5px)' },
     securityModal: { backgroundColor: 'white', padding: '40px', borderRadius: '16px', width: '400px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' },
     securityLabel: { display: 'block', marginBottom: '8px', fontWeight: 'bold', color: '#334155', fontSize: '13px' },
     securityInput: { width: '100%', padding: '12px', borderRadius: '8px', border: '2px solid #e2e8f0', marginBottom: '20px', fontSize: '16px', boxSizing: 'border-box' },
     btnSecuritySave: { width: '100%', backgroundColor: '#0f172a', color: 'white', padding: '14px', borderRadius: '8px', border: 'none', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' },
-
-    // NUEVOS ESTILOS PERFIL
-    infoCard: {
-        backgroundColor: '#fff',
-        borderRadius: '10px',
-        padding: '15px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.03)',
-        border: '1px solid #e2e8f0'
-    },
-    cardHeader: {
-        fontSize: '11px',
-        fontWeight: '800',
-        textTransform: 'uppercase',
-        color: '#64748b',
-        marginBottom: '10px',
-        letterSpacing: '0.5px'
-    },
-    infoGrid: {
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '12px',
-        rowGap: '15px'
-    },
-    infoLabel: {
-        display: 'block',
-        fontSize: '10px',
-        color: '#94a3b8',
-        fontWeight: '600',
-        marginBottom: '2px'
-    },
-    infoValue: {
-        fontSize: '13px',
-        color: '#1e293b',
-        fontWeight: '500',
-        wordBreak: 'break-word'
-    }
 };

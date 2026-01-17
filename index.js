@@ -992,33 +992,75 @@ app.get('/admin/resumen-legajo/:tutor_id', async (req, res) => {
         res.json(resumen);
     } catch (error) { res.status(500).json({ error: "Error resumen" }); }
 });
-
+// 24. DATA PARA REPORTE CONSOLIDADO (ADMIN) - VERSIÓN MEJORADA
+// 24. DATA PARA REPORTE CONSOLIDADO (ADMIN) - VERSIÓN MEJORADA
 app.get('/admin/reporte-consolidado/:tutor_id', async (req, res) => {
+    const { tutor_id } = req.params;
     try {
-        const idTutor = parseInt(req.params.tutor_id);
-        const tutor = await prisma.tutores.findUnique({
-            where: { id: idTutor },
-            include: { estudiantes: { select: { dni: true, nombres_apellidos: true, escuela_profesional: true, codigo_estudiante: true } } }
-        });
-        const individuales = await prisma.sesiones_tutoria.groupBy({
-            by: ['tipo_formato'],
-            where: { tutor_id: idTutor },
-            _count: { id: true }
-        });
-        const f02Count = await prisma.sesiones_grupales.count({ where: { tutor_id: idTutor } });
-        const f05Count = await prisma.derivaciones.count({ where: { tutor_id: idTutor } });
+        const id = parseInt(tutor_id);
 
-        res.json({
-            tutor,
-            resumen: {
-                F01: individuales.find(s => s.tipo_formato === 'F01')?._count.id || 0,
-                F02: f02Count,
-                F03: individuales.find(s => s.tipo_formato === 'F03')?._count.id || 0,
-                F04: individuales.find(s => s.tipo_formato === 'F04')?._count.id || 0,
-                F05: f05Count
+        // 1. Obtener datos del Tutor y sus Estudiantes asignados
+        const tutor = await prisma.tutores.findUnique({
+            where: { id: id },
+            include: {
+                estudiantes: {
+                    select: {
+                        id: true,
+                        nombres_apellidos: true,
+                        codigo_estudiante: true,
+                        escuela_profesional: true
+                    }
+                }
             }
         });
-    } catch (error) { res.status(500).json({ error: "Error consolidado" }); }
+
+        if (!tutor) return res.status(404).json({ error: "Tutor no encontrado" });
+
+        // 2. Calcular conteos reales en la Base de Datos
+        // F01: Estudiantes asignados (Asumimos que todos deben tener ficha)
+        const f01_count = await prisma.estudiantes.count({ where: { tutor_asignado_id: id } });
+
+        // F02: Sesiones Grupales creadas por el tutor
+        const f02_count = await prisma.sesiones_grupales.count({ where: { tutor_id: id } });
+
+        // F03: Entrevistas (Sesiones tipo F03)
+        const f03_count = await prisma.sesiones_tutoria.count({ 
+            where: { tutor_id: id, tipo_formato: 'F03' } 
+        });
+
+        // F04: Sesiones de Seguimiento (Tipo F04)
+        const f04_count = await prisma.sesiones_tutoria.count({ 
+            where: { tutor_id: id, tipo_formato: 'F04' } 
+        });
+
+        // F05: Derivaciones realizadas
+        const f05_count = await prisma.derivaciones.count({ where: { tutor_id: id } });
+
+        // 3. Buscar las observaciones del último informe enviado
+        const ultimoInforme = await prisma.informes_semestrales.findFirst({
+            where: { tutor_id: id },
+            orderBy: { fecha_envio: 'desc' }
+        });
+
+        // 4. Enviar todo empaquetado al Frontend
+        res.json({
+            nombre: tutor.nombres_apellidos,
+            programa: tutor.estudiantes[0]?.escuela_profesional || "Ingeniería de Sistemas",
+            observaciones_informe: ultimoInforme?.observaciones || "Sin observaciones registradas.",
+            lista_estudiantes: tutor.estudiantes, // <--- ESTO ES NUEVO Y VALIOSO
+            resumen_legajo: [
+                { tipo: 'F01', cantidad: f01_count },
+                { tipo: 'F02', cantidad: f02_count },
+                { tipo: 'F03', cantidad: f03_count },
+                { tipo: 'F04', cantidad: f04_count },
+                { tipo: 'F05', cantidad: f05_count },
+            ]
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Error al generar reporte" });
+    }
 });
 // --- PEGAR AL FINAL DE index.js (ANTES DE app.listen) ---
 
@@ -1107,8 +1149,45 @@ app.get('/tutores/:id/estado-informe', async (req, res) => {
     }
 });
 
+// --- NUEVA RUTA: LISTAR TODOS LOS INFORMES RECIBIDOS (PARA EL ADMIN) ---
+// --- NUEVA RUTA CORREGIDA: LISTAR INFORMES (Manual Join) ---
+// --- RUTA CORREGIDA: LISTAR INFORMES (Sin error de Prisma) ---
+app.get('/admin/informes', async (req, res) => {
+    try {
+        // 1. Obtenemos los informes sin 'include' para evitar errores de relación
+        const informes = await prisma.informes_semestrales.findMany({
+            orderBy: { fecha_envio: 'desc' }
+        });
 
+        // 2. Obtenemos manualmente los datos de los tutores
+        // (Esto simula el 'include' pero sin fallar si la relación no es estricta)
+        const tutorIds = [...new Set(informes.map(i => i.tutor_id))];
+        const tutores = await prisma.tutores.findMany({
+            where: { id: { in: tutorIds } },
+            select: { id: true, nombres_apellidos: true, codigo_docente: true }
+        });
+
+        // 3. Unimos los datos nosotros mismos
+        const resultado = informes.map(informe => {
+            const tutorInfo = tutores.find(t => t.id === informe.tutor_id);
+            return {
+                ...informe,
+                tutor: tutorInfo || { nombres_apellidos: 'Docente no encontrado', codigo_docente: '---' }
+            };
+        });
+
+        res.json(resultado);
+    } catch (error) {
+        console.error("Error al listar informes:", error);
+        res.status(500).json({ error: "Error interno al obtener informes" });
+    }
+});
 // INICIAR SERVIDOR
+
+
+
+
+
 app.listen(PORT, () => {
     console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
 });

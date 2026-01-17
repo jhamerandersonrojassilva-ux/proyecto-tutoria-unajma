@@ -6,38 +6,37 @@ import { toast } from 'sonner';
 import { generarPDFConsolidado } from '../utils/generadorConsolidado';
 import Swal from 'sweetalert2'; 
 
-// URL BASE PARA DESCARGAS (Ajusta si tu puerto cambia)
+// URL BASE PARA DESCARGAS
 const BASE_URL = 'http://localhost:3001';
 
 const AdminDashboard = () => {
-  // --- ESTADOS PRINCIPALES ---
+  // --- ESTADOS ---
   const [tab, setTab] = useState('ciclos');
   const [roles, setRoles] = useState([]);
   const [tutores, setTutores] = useState([]);
   const [ciclos, setCiclos] = useState([]); 
   const [cicloActivo, setCicloActivo] = useState(null);
-  const [seguimiento, setSeguimiento] = useState([]);
+  const [seguimiento, setSeguimiento] = useState([]); 
 
-  // --- ESTADOS PARA GESTIÓN DE CICLOS ---
+  // --- ESTADOS GESTIÓN CICLOS ---
   const [nuevoCiclo, setNuevoCiclo] = useState(""); 
   const [cicloEditando, setCicloEditando] = useState(null);
   const [nombreEditado, setNombreEditado] = useState("");
 
-  // --- ESTADOS PARA EDICIÓN DE ESTUDIANTE ---
+  // --- ESTADOS GESTIÓN ESTUDIANTES ---
   const [busquedaEstudiante, setBusquedaEstudiante] = useState("");
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
   const [estudianteEditando, setEstudianteEditando] = useState(null);
-  
   const [formEstudiante, setFormEstudiante] = useState({
     nombres: '', dni: '', codigo: '', tutor_id: '', telefono: ''
   });
 
-  // --- ESTADOS PARA NOTIFICACIONES WHATSAPP ---
+  // --- ESTADOS NOTIFICACIONES WHATSAPP ---
   const [listaNotificaciones, setListaNotificaciones] = useState([]);
   const [enviadosLocalmente, setEnviadosLocalmente] = useState([]); 
   const [modoEnvioActivo, setModoEnvioActivo] = useState(false);
 
-  // --- ESTADOS PARA MODAL LEGAJO ---
+  // --- ESTADOS LEGAJO ---
   const [mostrarModalLegajo, setMostrarModalLegajo] = useState(false);
   const [tutorSeleccionado, setTutorSeleccionado] = useState(null);
   const [resumenLegajo, setResumenLegajo] = useState([]);
@@ -59,7 +58,7 @@ const AdminDashboard = () => {
     } catch (err) { console.error("Error datos admin:", err); }
   };
 
-  // --- LOGICA NOTIFICACIONES ---
+  // --- LÓGICA NOTIFICACIONES ---
   const cargarNotificaciones = async () => {
     try {
         const res = await api.get('/admin/notificaciones-asignacion');
@@ -98,7 +97,7 @@ const AdminDashboard = () => {
   const total = listaNotificaciones.length;
   const faltanTelefonos = listaNotificaciones.filter(e => !e.telefono || e.telefono.length < 9).length;
 
-  // --- LOGICA BUSQUEDA Y EDICIÓN ---
+  // --- LÓGICA BÚSQUEDA Y EDICIÓN ESTUDIANTES ---
   const buscarEstudiante = async (e) => {
     e.preventDefault();
     if (!busquedaEstudiante.trim()) return;
@@ -140,7 +139,7 @@ const AdminDashboard = () => {
     }
   };
 
-  // --- OTROS HANDLERS ---
+  // --- OTROS HANDLERS DE GESTIÓN ---
   const crearCiclo = async (e) => { e.preventDefault(); try { await api.post('/admin/ciclos', { nombre_ciclo: nuevoCiclo }); toast.success("Creado"); setNuevoCiclo(""); fetchData(); } catch (error) { toast.error("Error"); } };
   const activarCiclo = async (id) => { try { await api.patch(`/admin/ciclos/${id}/activar`); toast.success("Activado"); fetchData(); } catch (e) { toast.error("Error"); }};
   const iniciarEdicion = (c) => { setCicloEditando(c.id); setNombreEditado(c.nombre_ciclo); };
@@ -148,7 +147,13 @@ const AdminDashboard = () => {
   const guardarEdicion = async (id) => { try { await api.put(`/admin/ciclos/${id}`, { nombre_ciclo: nombreEditado }); toast.success("Editado"); setCicloEditando(null); fetchData(); } catch (e) { toast.error("Error"); }};
   const eliminarCiclo = async (id) => { if(window.confirm("¿Eliminar?")) try { await api.delete(`/admin/ciclos/${id}`); toast.success("Eliminado"); fetchData(); } catch(e) { toast.error("Error"); }};
   
-  const cargarSeguimiento = async () => { try { const res = await api.get('/admin/seguimiento-remisiones'); setSeguimiento(res.data); } catch (e) { console.error(e); }};
+  // --- CARGAR INFORMES (BANDEJA) ---
+  const cargarSeguimiento = async () => {
+    try {
+      const res = await api.get('/admin/informes'); 
+      setSeguimiento(res.data);
+    } catch (e) { console.error(e); }
+  };
   
   const abrirLegajo = async (t) => { try { setTutorSeleccionado(t); const res = await api.get(`/admin/resumen-legajo/${t.id}`); setResumenLegajo(res.data); setMostrarModalLegajo(true); } catch (e) { console.error(e); }};
   
@@ -167,7 +172,7 @@ const AdminDashboard = () => {
         <button onClick={() => setTab('carga')} style={tab === 'carga' ? localStyles.tabActive : localStyles.tab}>📤 Carga Masiva</button>
         <button onClick={() => setTab('reasignacion')} style={tab === 'reasignacion' ? localStyles.tabActive : localStyles.tab}>🎓 Gestión de Estudiantes</button>
         <button onClick={() => { setTab('notificaciones'); cargarNotificaciones(); }} style={tab === 'notificaciones' ? localStyles.tabActive : localStyles.tab}>📢 Notificaciones</button>
-        <button onClick={() => { setTab('seguimiento'); cargarSeguimiento(); }} style={tab === 'seguimiento' ? localStyles.tabActive : localStyles.tab}>📊 Seguimiento</button>
+        <button onClick={() => { setTab('seguimiento'); cargarSeguimiento(); }} style={tab === 'seguimiento' ? localStyles.tabActive : localStyles.tab}>📊 Bandeja de Informes</button>
       </div>
 
       <div style={localStyles.contentCard}>
@@ -272,17 +277,22 @@ const AdminDashboard = () => {
             </div>
         )}
 
-        {/* --- PESTAÑA: SEGUIMIENTO Y GESTIÓN DE INFORMES --- */}
+        {/* --- PESTAÑA: BANDEJA DE INFORMES (SEGUIMIENTO) --- */}
         {tab === 'seguimiento' && (
           <div style={{ animation: 'fadeIn 0.5s' }}>
-            <h3 style={localStyles.sectionTitle}>📋 Gestión de Informes Semestrales</h3>
+            <div style={localStyles.cardHeader}>
+                <h3 style={localStyles.sectionTitle}>📬 Informes Pendientes de Revisión</h3>
+                <button onClick={cargarSeguimiento} style={localStyles.btnRefresh}>🔄 Actualizar</button>
+            </div>
+            
             <table style={localStyles.table}>
               <thead>
                 <tr style={localStyles.trHead}>
                   <th style={localStyles.th}>Fecha Recepción</th>
                   <th style={localStyles.th}>Docente</th>
-                  <th style={localStyles.th}>Estado Actual</th>
+                  <th style={localStyles.th}>Estado</th>
                   <th style={localStyles.th}>Datos Clave</th>
+                  <th style={localStyles.th}>Adjunto</th>
                   <th style={localStyles.th}>Acciones de Gestión</th>
                 </tr>
               </thead>
@@ -299,10 +309,11 @@ const AdminDashboard = () => {
 
                       {/* 2. DOCENTE */}
                       <td style={localStyles.td}>
-                        <div style={{fontWeight:'700', color:'#334155'}}>{rem.nombre_tutor || 'Sin Nombre'}</div>
+                        <div style={{fontWeight:'700', color:'#334155'}}>{rem.tutor?.nombres_apellidos || rem.nombre_tutor || 'Docente'}</div>
+                        <div style={{fontSize:'11px', color:'#64748b'}}>{rem.tutor?.codigo_docente || ''}</div>
                       </td>
 
-                      {/* 3. ESTADO (CON COLORES) */}
+                      {/* 3. ESTADO */}
                       <td style={localStyles.td}>
                         <span style={{
                           padding: '6px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '800', display:'inline-block',
@@ -314,151 +325,134 @@ const AdminDashboard = () => {
                         </span>
                       </td>
 
-                      {/* 4. DATOS */}
+                      {/* 4. DATOS CLAVE */}
                       <td style={localStyles.td}>
-                         <div style={{fontSize:'12px', lineHeight:'1.4'}}>👥 <b>{rem.total_estudiantes}</b> Estudiantes<br/>📊 Avance: <b>{rem.avance_porcentaje}%</b></div>
+                          <div style={{fontSize:'12px', lineHeight:'1.4', color:'#334155'}}>
+                              👥 <b>{rem.total_estudiantes || 0}</b> Estudiantes<br/>
+                              <div style={{display:'flex', alignItems:'center', gap:'5px', marginTop:'2px'}}>
+                                  📊 Avance: <b>{rem.avance_porcentaje}%</b>
+                                  <div style={{width:'40px', height:'4px', backgroundColor:'#e2e8f0', borderRadius:'2px'}}>
+                                      <div style={{width: `${rem.avance_porcentaje}%`, height:'100%', backgroundColor: rem.avance_porcentaje < 50 ? '#ef4444' : '#10b981', borderRadius:'2px'}}></div>
+                                  </div>
+                              </div>
+                          </div>
                       </td>
 
-                      {/* 5. ACCIONES EJECUTIVAS */}
+                      {/* 5. ADJUNTO */}
                       <td style={localStyles.td}>
-                        <div style={{display:'flex', gap:'8px'}}>
+                        {rem.archivo_url ? (
+                          <button 
+                            onClick={() => window.open(`${BASE_URL}${rem.archivo_url}`, '_blank')}
+                            title="Ver documento adjunto"
+                            style={{...localStyles.actionBtn, backgroundColor:'#8b5cf6', minWidth:'35px'}}
+                          >
+                            📥
+                          </button>
+                        ) : <span style={{color:'#cbd5e1', fontSize:'11px'}}>--</span>}
+                      </td>
+
+                      {/* 6. ACCIONES COMPLETO */}
+                      <td style={localStyles.td}>
+                        <div style={{display:'flex', gap:'6px'}}>
                             
-                            {/* --- BOTÓN DE AUDITORÍA (VER EVIDENCIAS) --- */}
+                            {/* PDF */}
                             <button 
                                 onClick={async () => {
-                                    const toastId = toast.loading("Generando expediente para revisión...");
+                                    const toastId = toast.loading("Generando...");
                                     try {
                                         const res = await api.get(`/admin/reporte-consolidado/${rem.tutor_id}`);
-                                        await generarPDFConsolidado(res.data, rem.semestre || 'Ciclo Actual');
+                                        await generarPDFConsolidado(res.data, rem.semestre || '2025-I');
                                         toast.dismiss(toastId);
-                                        toast.success("📂 Expediente descargado para revisión");
-                                    } catch (e) {
-                                        console.error(e);
-                                        toast.dismiss(toastId);
-                                        toast.error("Error al generar la evidencia");
-                                    }
+                                        toast.success("Descargado");
+                                    } catch (e) { toast.dismiss(toastId); toast.error("Error"); }
                                 }}
-                                title="Descargar Expediente con Evidencias (Sistema)"
-                                style={{...localStyles.actionBtn, backgroundColor:'#6366f1', minWidth:'40px'}} 
+                                title="Generar PDF del Sistema"
+                                style={{...localStyles.actionBtn, backgroundColor:'#6366f1', minWidth:'35px'}} 
                             >
                                 📄
                             </button>
 
-                            {/* --- BOTÓN DESCARGAR ADJUNTO (Si existe) --- */}
-                            {rem.archivo_url && (
-                                <button 
-                                    onClick={() => {
-                                        const url = `${BASE_URL}${rem.archivo_url}`;
-                                        window.open(url, '_blank');
-                                    }}
-                                    title="Descargar Informe Adjunto (PDF/Word)"
-                                    style={{...localStyles.actionBtn, backgroundColor:'#8b5cf6', minWidth:'40px'}} 
-                                >
-                                    📥
-                                </button>
-                            )}
-
-                            {/* LEER OBSERVACIONES */}
+                            {/* VER OBSERVACIÓN */}
                             <button 
                                 onClick={() => {
                                     Swal.fire({
-                                        title: `<h3 style="color:#1e293b; margin:0;">📑 Informe del Docente</h3>`,
-                                        html: `
-                                            <div style="text-align: left; font-size: 14px; color: #334155;">
-                                                <p><strong>Docente:</strong> ${rem.nombre_tutor}</p>
-                                                <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 10px 0;">
-                                                <p><strong>Comentarios / Observaciones del Tutor:</strong></p>
-                                                <div style="background: #f1f5f9; padding: 15px; border-radius: 8px; font-style: italic; border-left: 4px solid #3b82f6;">
-                                                    "${rem.observaciones || 'Sin comentarios registrados.'}"
-                                                </div>
-                                            </div>
-                                        `,
-                                        width: '500px',
-                                        confirmButtonText: 'Cerrar',
-                                        confirmButtonColor: '#64748b'
+                                        title: '📑 Informe del Docente',
+                                        html: `<p style="text-align:left; color:#334155;">"${rem.observaciones || 'Sin comentarios.'}"</p>`,
+                                        confirmButtonColor: '#3b82f6'
                                     });
                                 }}
-                                title="Leer conclusiones del tutor"
-                                style={{...localStyles.actionBtn, backgroundColor:'#3b82f6', minWidth:'40px'}}
+                                title="Leer conclusiones"
+                                style={{...localStyles.actionBtn, backgroundColor:'#3b82f6', minWidth:'35px'}}
                             >
                                 👁️
                             </button>
 
-                            {/* APROBAR (Cierra el ciclo) */}
+                            {/* APROBAR (SOLO SI NO ESTÁ APROBADO) */}
                             {rem.estado !== 'APROBADO' && (
                                 <button 
                                     onClick={() => {
                                         Swal.fire({
-                                            title: '¿Validar Informe?',
-                                            text: "Al aprobar, confirmas que el docente ha cumplido con sus labores.",
+                                            title: '¿Aprobar?',
+                                            text: "Confirmas la conformidad del informe.",
                                             icon: 'success',
                                             showCancelButton: true,
                                             confirmButtonColor: '#16a34a',
-                                            cancelButtonColor: '#94a3b8',
-                                            confirmButtonText: 'Sí, Validar',
-                                            cancelButtonText: 'Cancelar'
-                                        }).then(async (result) => {
-                                            if (result.isConfirmed) {
-                                                try {
-                                                    await api.patch(`/admin/informes/${rem.id}/estado`, { estado: 'APROBADO' });
-                                                    toast.success("✅ Informe validado correctamente");
-                                                    cargarSeguimiento();
-                                                } catch(e) { toast.error("Error al validar"); }
+                                            confirmButtonText: 'Sí, Aprobar'
+                                        }).then(async (r) => {
+                                            if(r.isConfirmed) {
+                                                await api.patch(`/admin/informes/${rem.id}/estado`, { estado: 'APROBADO' });
+                                                toast.success("Informe Aprobado");
+                                                cargarSeguimiento();
                                             }
                                         });
                                     }}
-                                    title="Validar y Archivar"
-                                    style={{...localStyles.actionBtn, backgroundColor:'#16a34a', minWidth:'40px'}}
+                                    title="Aprobar y Cerrar"
+                                    style={{...localStyles.actionBtn, backgroundColor:'#16a34a', minWidth:'35px'}}
                                 >
                                     ✅
                                 </button>
                             )}
 
-                            {/* DEVOLVER / RECHAZAR */}
-                            {rem.estado !== 'APROBADO' && (
-                                <button 
-                                    onClick={() => {
-                                        Swal.fire({
-                                            title: '¿Devolver Informe?',
-                                            text: "Esto anulará el envío actual y permitirá al docente corregir y volver a enviar.",
-                                            icon: 'warning',
-                                            showCancelButton: true,
-                                            confirmButtonColor: '#ea580c',
-                                            cancelButtonColor: '#94a3b8',
-                                            confirmButtonText: 'Sí, Devolver',
-                                            cancelButtonText: 'Cancelar'
-                                        }).then(async (result) => {
-                                            if (result.isConfirmed) {
-                                                try {
-                                                    await api.delete(`/admin/informes/${rem.id}`);
-                                                    Swal.fire('Devuelto', 'El informe ha sido devuelto al docente para correcciones.', 'info');
-                                                    cargarSeguimiento();
-                                                } catch(e) { toast.error("Error al devolver"); }
-                                            }
-                                        });
-                                    }}
-                                    title="Devolver al Docente (Permite corregir)"
-                                    style={{...localStyles.actionBtn, backgroundColor:'#ea580c', minWidth:'40px'}}
-                                >
-                                    🔄
-                                </button>
-                            )}
-                            
-                            {/* ELIMINAR (Solo si aprobado) */}
-                            {rem.estado === 'APROBADO' && (
-                                <button 
-                                    onClick={async () => {
-                                        if(await Swal.fire({title:'¿Borrar historial?', text:'Esta acción es irreversible.', icon:'error', showCancelButton:true, confirmButtonText:'Borrar'}).then(r=>r.isConfirmed)) {
-                                            await api.delete(`/admin/informes/${rem.id}`);
+                            {/* DEVOLVER / REABRIR (SIEMPRE DISPONIBLE - BOTÓN NARANJA) */}
+                            <button 
+                                onClick={() => {
+                                    Swal.fire({
+                                        title: rem.estado === 'APROBADO' ? '¿Reabrir Informe?' : '¿Devolver Informe?',
+                                        text: rem.estado === 'APROBADO' 
+                                            ? "El informe ya estaba aprobado. ¿Deseas desbloquearlo para que el docente haga cambios?" 
+                                            : "El docente recibirá una notificación para corregir su informe.",
+                                        icon: 'warning',
+                                        showCancelButton: true,
+                                        confirmButtonColor: '#ea580c',
+                                        confirmButtonText: rem.estado === 'APROBADO' ? 'Sí, Reabrir' : 'Sí, Devolver'
+                                    }).then(async (result) => {
+                                        if (result.isConfirmed) {
+                                            // AL BORRAR, SE DESBLOQUEA AUTOMÁTICAMENTE EL PANEL DEL TUTOR
+                                            await api.delete(`/admin/informes/${rem.id}`); 
+                                            toast.success("Informe devuelto/reabierto exitosamente.");
                                             cargarSeguimiento();
                                         }
-                                    }}
-                                    title="Eliminar del historial"
-                                    style={{...localStyles.actionBtn, backgroundColor:'#cbd5e1', color:'#475569'}}
-                                >
-                                    🗑️
-                                </button>
-                            )}
+                                    });
+                                }}
+                                title={rem.estado === 'APROBADO' ? "Reabrir panel al docente" : "Devolver para corrección"}
+                                style={{...localStyles.actionBtn, backgroundColor:'#ea580c', minWidth:'35px'}}
+                            >
+                                🔄
+                            </button>
+                            
+                            {/* ELIMINAR (SOLO PARA LIMPIEZA) */}
+                            <button 
+                                onClick={async () => {
+                                    if(await Swal.fire({title:'¿Eliminar registro?', text:'Se borrará del historial.', icon:'error', showCancelButton:true, confirmButtonText:'Eliminar'}).then(r=>r.isConfirmed)) {
+                                        await api.delete(`/admin/informes/${rem.id}`);
+                                        cargarSeguimiento();
+                                    }
+                                }}
+                                title="Eliminar del historial"
+                                style={{...localStyles.actionBtn, backgroundColor:'#cbd5e1', color:'#475569'}}
+                            >
+                                🗑️
+                            </button>
 
                         </div>
                       </td>
@@ -466,7 +460,7 @@ const AdminDashboard = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="5" style={{padding:'40px', textAlign:'center', color:'#64748b'}}>
+                    <td colSpan="6" style={{padding:'40px', textAlign:'center', color:'#64748b'}}>
                         <div style={{fontSize:'30px', marginBottom:'10px'}}>📭</div>
                         No hay informes pendientes de revisión.
                     </td>
@@ -501,7 +495,7 @@ const localStyles = {
   trHead: { backgroundColor: '#f8fafc', textAlign: 'left' },
   th: { padding: '12px', borderBottom: '2px solid #e2e8f0', color: '#475569' },
   tr: { borderBottom: '1px solid #f1f5f9' },
-  td: { padding: '12px', color: '#334155' },
+  td: { padding: '12px', color: '#334155', verticalAlign: 'middle' },
   badge: { padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' },
   
   // Estilos Edición Estudiante
@@ -515,10 +509,14 @@ const localStyles = {
   btnSave: { backgroundColor: '#2563eb', color: 'white', padding: '10px 20px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 'bold' },
   btnCancel: { backgroundColor: '#94a3b8', color: 'white', padding: '10px 20px', borderRadius: '6px', border: 'none', cursor: 'pointer' },
   
-  // Estilos Notificaciones WhatsApp (NUEVO)
+  // Estilos Notificaciones WhatsApp
   queueCard: { backgroundColor: '#f8fafc', padding: '30px', borderRadius: '12px', border: '2px dashed #cbd5e1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
   btnWhatsApp: { backgroundColor: '#16a34a', color: 'white', padding: '15px 30px', borderRadius: '30px', border: 'none', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(22, 163, 74, 0.4)', transition: 'transform 0.1s', display:'flex', alignItems:'center', gap:'8px' },
-  actionBtn: { backgroundColor: '#0f172a', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' },
+  actionBtn: { backgroundColor: '#0f172a', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', display:'flex', alignItems:'center', justifyContent:'center' },
+
+  // Botones Panel Seguimiento
+  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' },
+  btnRefresh: { backgroundColor: '#f1f5f9', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', color: '#475569', fontSize: '13px', fontWeight: '600' },
 
   formInline: { display: 'flex', gap: '10px', marginBottom: '20px' },
   input: { flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' },

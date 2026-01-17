@@ -70,9 +70,7 @@ export default function ModalHistorial({ estudiante, historial = [], onClose, on
     } catch (error) { toast.error("Error al generar PDF"); }
   };
 
-  // --- ELIMINAR (CORREGIDO) ---
-  // --- ELIMINAR (CORREGIDO) ---
-  // --- ELIMINAR (LÓGICA CORREGIDA: EVITAR DOBLE DELETE) ---
+  // --- ELIMINAR (LÓGICA CORREGIDA) ---
   const eliminarRegistro = async (registro) => {
     const idASuprimir = registro.id; 
     if (!idASuprimir) return;
@@ -80,14 +78,13 @@ export default function ModalHistorial({ estudiante, historial = [], onClose, on
     if (!window.confirm("¿Estás seguro de eliminar este registro?")) return;
   
     try {
-      // ESCENARIO A: Si el padre me pasó una función para eliminar, LE DELEGO LA RESPONSABILIDAD
-      // y no hago nada más aquí.
+      // ESCENARIO A: Delegar al padre
       if (onEliminar) {
-          await onEliminar(idASuprimir); // El padre (Dashboard) se encarga de la API y el refresco
+          await onEliminar(idASuprimir); 
           return; 
       }
 
-      // ESCENARIO B: Si no hay padre manejando esto, lo elimino yo (Modal)
+      // ESCENARIO B: Eliminar localmente
       let ruta = `/sesiones/${idASuprimir}`;
       if (registro.tipo_formato === 'F02') {
         ruta = `/sesiones-grupales/${idASuprimir}`;
@@ -96,7 +93,6 @@ export default function ModalHistorial({ estudiante, historial = [], onClose, on
       await api.delete(ruta);
       toast.success("Registro eliminado correctamente");
   
-      // Solo refrescamos si no delegamos
       if (onRefrescar) {
         await onRefrescar(); 
       }
@@ -111,19 +107,17 @@ export default function ModalHistorial({ estudiante, historial = [], onClose, on
   const manejarEdicion = (sesion) => {
       const tipo = sesion.tipo_formato;
 
-      // F01 (Ficha), F03 (Entrevista) y F05 (Derivación) delegan al padre (Dashboard)
-      if (tipo === 'F01' || tipo === 'F03' || tipo === 'F05' || tipo === 'Derivación') {
+      // F01, F02, F03, F05 delegan al padre (Dashboard)
+      if (['F01', 'F02', 'F03', 'F05', 'Derivación'].includes(tipo)) {
           if (onEditar) {
               onEditar(sesion); 
           } else {
               toast.info("La edición de este formato no está disponible aquí.");
           }
       } 
-      // F04 (Seguimiento) se edita aquí mismo
-      else if (tipo !== 'F02') { 
+      // F04 (Seguimiento) se edita aquí mismo (Modal interno)
+      else { 
           setSesionEditando(sesion);
-      } else {
-          toast.info("Las sesiones grupales se editan desde el panel principal");
       }
   };
 
@@ -133,7 +127,6 @@ export default function ModalHistorial({ estudiante, historial = [], onClose, on
           await api.put(`/sesiones/${datosActualizados.id}`, datosActualizados);
           toast.success("Registro actualizado");
 
-          // Descargar PDF F04 actualizado automáticamente
           try {
               generarF04(datosActualizados, estudiante);
               toast.success("Descargando PDF actualizado...");
@@ -191,10 +184,10 @@ export default function ModalHistorial({ estudiante, historial = [], onClose, on
 
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button onClick={() => manejarDescargaPDF(s)} style={actionBtnStyle('#f1f5f9', '#475569')} title="PDF">📄</button>
-                            {/* BOTÓN EDITAR INTELIGENTE */}
-                            {s.tipo_formato !== 'F02' && (
-                                <button onClick={() => manejarEdicion(s)} style={actionBtnStyle('#fffbeb', '#d97706')} title="Editar">✏️</button>
-                            )}
+                            
+                            {/* BOTÓN EDITAR SIEMPRE VISIBLE (AHORA INCLUYE F02) */}
+                            <button onClick={() => manejarEdicion(s)} style={actionBtnStyle('#fffbeb', '#d97706')} title="Editar">✏️</button>
+                            
                             <button onClick={() => eliminarRegistro(s)} style={actionBtnStyle('#fef2f2', '#dc2626')} title="Eliminar">🗑️</button>
                           </div>
                         </div>
