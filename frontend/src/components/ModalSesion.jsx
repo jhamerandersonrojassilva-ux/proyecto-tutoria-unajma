@@ -13,20 +13,17 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
   const [acuerdos, setAcuerdos] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [fechaManual, setFechaManual] = useState(fechaLocal);
+  const [numeroSeguimiento, setNumeroSeguimiento] = useState("1"); // Estado del número
 
   const firmaTutorRef = useRef(null);
   const firmaEstudianteRef = useRef(null);
 
   // --- 1. LÓGICA PARA RECUPERAR FIRMA DE F01 ---
-  // Buscamos la ficha F01 dentro de las sesiones del estudiante
   const fichaF01 = estudiante?.sesiones?.find(s => s.tipo_formato === 'F01');
   let firmaGuardadaUrl = null;
 
   if (fichaF01) {
-    // A. Intentamos leer la firma directa de la base de datos
     firmaGuardadaUrl = fichaF01.firma_estudiante_url;
-    
-    // B. Si no hay, buscamos dentro del JSON 'desarrollo_entrevista' (backup)
     if (!firmaGuardadaUrl && fichaF01.desarrollo_entrevista) {
       try {
         const datosJson = typeof fichaF01.desarrollo_entrevista === 'string'
@@ -39,31 +36,26 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
     }
   }
 
-  // Función para pintar la imagen en el canvas del estudiante
   const cargarFirmaGuardada = () => {
     if (!firmaGuardadaUrl) {
       alert("⚠️ El estudiante no tiene una firma registrada en su Ficha Integral (F01).");
       return;
     }
-    
     const instance = firmaEstudianteRef.current?.instance;
     if (instance) {
       const canvas = instance._canvas;
       const ctx = canvas.getContext('2d');
       const img = new Image();
-      // Agregamos timestamp para evitar caché
       img.src = firmaGuardadaUrl.startsWith('http') ? `${firmaGuardadaUrl}?t=${Date.now()}` : firmaGuardadaUrl;
-      
       img.onload = () => {
-        instance.clear(); // Limpiamos antes de dibujar
-        // Dibujamos la imagen ajustada al tamaño del canvas (250x120)
+        instance.clear();
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       };
       img.onerror = () => alert("❌ Error al cargar la imagen de la firma.");
     }
   };
 
-  // --- 2. RECALIBRACIÓN DEL CANVAS (Evita trazos desplazados) ---
+  // --- 2. RECALIBRACIÓN DEL CANVAS ---
   useEffect(() => {
     const timer = setTimeout(() => {
       const recalibrar = (ref) => {
@@ -88,11 +80,19 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    const session = JSON.parse(localStorage.getItem('user') || '{}');
-    const tutorIdFinal = session.tutor_id || session.id;
+    // Intentar obtener el tutor del localStorage o usar valores por defecto
+    let tutorIdFinal = null;
+    try {
+        const session = JSON.parse(localStorage.getItem('usuario') || '{}'); // A veces se guarda como 'usuario'
+        tutorIdFinal = session.tutor_id;
+        if (!tutorIdFinal) {
+             const session2 = JSON.parse(localStorage.getItem('user') || '{}'); // O como 'user'
+             tutorIdFinal = session2.tutor_id || session2.id;
+        }
+    } catch(e) { console.error("Error leyendo sesión", e); }
 
     if (!tutorIdFinal) {
-      alert("❌ Error: No se detectó ID del tutor. Reinicie sesión.");
+      alert("❌ Error: No se detectó ID del tutor. Por favor, cierre sesión e ingrese nuevamente.");
       return;
     }
 
@@ -104,6 +104,13 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
       ? null 
       : firmaEstudianteRef.current.instance.toDataURL('image/png');
 
+    // --- CORRECCIÓN CRÍTICA: Empaquetar datos extra ---
+    // Guardamos el número de seguimiento dentro de un JSON String
+    // para que el backend lo guarde en la columna 'desarrollo_entrevista'
+    const datosExtra = JSON.stringify({
+        numero_seguimiento: numeroSeguimiento
+    });
+
     onGuardar({
       estudiante_id: estudiante.id,
       tutor_id: tutorIdFinal,
@@ -113,11 +120,11 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
       fecha: fechaManual,
       firma_tutor_url: imgTutor,
       firma_estudiante_url: imgEst,
-      tipo_formato: 'F04'
+      tipo_formato: 'F04',
+      desarrollo_entrevista: datosExtra // <--- AQUÍ VA EL PAQUETE JSON
     });
   };
 
-  // Estilo para los textareas (renglones)
   const estiloRenglones = {
     width: '100%',
     border: 'none',
@@ -146,9 +153,24 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
         </div>
         
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ fontWeight: 'bold' }}>Fecha: </label>
-            <input type="datetime-local" value={fechaManual} onChange={(e) => setFechaManual(e.target.value)} required />
+          {/* FILA: FECHA Y NÚMERO DE SEGUIMIENTO */}
+          <div style={{ display: 'flex', gap: '20px', marginBottom: '15px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontWeight: 'bold', display: 'block' }}>Fecha:</label>
+              <input type="datetime-local" value={fechaManual} onChange={(e) => setFechaManual(e.target.value)} style={{ width: '100%', padding: '5px' }} required />
+            </div>
+            <div style={{ width: '150px' }}>
+              <label style={{ fontWeight: 'bold', display: 'block' }}>N° Seguimiento:</label>
+              <input 
+                type="number" 
+                min="1" 
+                value={numeroSeguimiento} 
+                onChange={(e) => setNumeroSeguimiento(e.target.value)} 
+                style={{ width: '100%', padding: '5px' }}
+                placeholder="Ej. 1"
+                required 
+              />
+            </div>
           </div>
 
           <div style={{ marginBottom: '15px' }}>
@@ -167,7 +189,7 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '40px', textAlign: 'center' }}>
-            {/* --- FIRMA DEL TUTOR --- */}
+            {/* FIRMA TUTOR */}
             <div style={{ width: '250px' }}>
               <div style={{ border: '1px solid #eee', marginBottom: '5px', backgroundColor: '#fcfcfc' }}>
                 <SignaturePad ref={firmaTutorRef} canvasProps={{ width: 250, height: 120, className: 'sigCanvas' }} />
@@ -178,41 +200,16 @@ export default function ModalSesion({ estudiante, onGuardar, onClose }) {
               </div>
             </div>
 
-            {/* --- FIRMA DEL ESTUDIANTE (CON BOTÓN DE CARGA) --- */}
+            {/* FIRMA ESTUDIANTE */}
             <div style={{ width: '250px' }}>
               <div style={{ border: '1px solid #eee', marginBottom: '5px', backgroundColor: '#fcfcfc' }}>
                 <SignaturePad ref={firmaEstudianteRef} canvasProps={{ width: 250, height: 120, className: 'sigCanvas' }} />
               </div>
               <div style={{ borderTop: '1px solid black', paddingTop: '5px' }}>
                 <p style={{ margin: '0 0 5px 0', fontSize: '12px' }}>Firma del estudiante tutorado</p>
-                
-                {/* BOTONES DE ACCIÓN */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 5px' }}>
-                  <button 
-                    type="button" 
-                    onClick={cargarFirmaGuardada}
-                    title="Cargar firma registrada en Ficha Integral F01"
-                    style={{ 
-                      fontSize: '10px', 
-                      color: '#004a99', 
-                      border: '1px solid #004a99', 
-                      borderRadius: '4px', 
-                      background: 'white',
-                      cursor: 'pointer',
-                      padding: '3px 8px',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    📂 Cargar Firma F01
-                  </button>
-
-                  <button 
-                    type="button" 
-                    onClick={limpiarEstudiante} 
-                    style={{ fontSize: '10px', color: 'red', border: 'none', background: 'none', cursor: 'pointer' }}
-                  >
-                    Borrar
-                  </button>
+                  <button type="button" onClick={cargarFirmaGuardada} style={{ fontSize: '10px', color: '#004a99', border: '1px solid #004a99', borderRadius: '4px', background: 'white', cursor: 'pointer', padding: '3px 8px', fontWeight: 'bold' }}>📂 Cargar Firma F01</button>
+                  <button type="button" onClick={limpiarEstudiante} style={{ fontSize: '10px', color: 'red', border: 'none', background: 'none', cursor: 'pointer' }}>Borrar</button>
                 </div>
               </div>
             </div>

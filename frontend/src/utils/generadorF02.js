@@ -2,11 +2,9 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
 // Define la URL de tu backend para completar las rutas relativas
-// Asegúrate de que esta URL sea correcta según tu entorno (dev/prod)
 const BACKEND_URL = "http://localhost:3001"; 
 
 // --- FUNCIÓN HELPER PARA CARGAR IMAGEN ASÍNCRONA ---
-// Esto asegura que la imagen se descargue completamente antes de insertarla en el PDF
 const cargarImagen = (url) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -19,17 +17,23 @@ const cargarImagen = (url) => {
     };
   });
 };
-export const generarF02 = (dataSesion, retornarDoc = false) => {
+
+// --- FUNCIÓN PRINCIPAL (AHORA ES ASYNC) ---
+export const generarF02 = async (dataSesion, retornarDoc = false) => {
   
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
 
+  // Normalizamos datos para uso interno
+  const sesion = dataSesion;
+  // IMPORTANTE: Definimos asistentes para evitar el error en el map
+  const asistentes = Array.isArray(sesion.asistentes) ? sesion.asistentes : [];
+
   // --- FUNCIÓN HELPER PARA DIBUJAR ENCABEZADO REUTILIZABLE ---
   const dibujarEncabezado = () => {
     try {
       // Intenta cargar el logo desde la carpeta pública
-      // Asegúrate de que 'logo_unajma.png' esté en tu carpeta 'public'
       doc.addImage('/logo_unajma.png', 'PNG', 15, 10, 22, 22);
     } catch (e) { console.warn("Logo no encontrado"); }
 
@@ -52,6 +56,7 @@ export const generarF02 = (dataSesion, retornarDoc = false) => {
   dibujarEncabezado();
 
   doc.setFontSize(11).text("FICHA DE TUTORÍA GRUPAL (Formato 02)", pageWidth / 2, 42, { align: "center" });
+  
   // 2. Bloque de Datos con Líneas
   doc.setFontSize(10);
   
@@ -65,10 +70,8 @@ export const generarF02 = (dataSesion, retornarDoc = false) => {
   // Manejo seguro de la fecha
   let fechaFmt = "__/__/____";
   if (sesion.fecha) {
-      // Intenta crear la fecha, manejando posibles formatos ISO o strings
       const fechaObj = new Date(sesion.fecha);
       // Ajuste básico para zona horaria si es necesario, o usar UTC
-      // .getUTCDate() a veces es mejor si la fecha viene como YYYY-MM-DD sin hora
       fechaFmt = !isNaN(fechaObj.getTime()) ? fechaObj.toLocaleDateString('es-ES', { timeZone: 'UTC' }) : sesion.fecha;
   }
 
@@ -93,6 +96,7 @@ export const generarF02 = (dataSesion, retornarDoc = false) => {
   doc.text(`Académica ( ${area.includes('acad') ? 'X' : ' '} )`, margin + 35, 76);
   doc.text(`Personal ( ${area.includes('pers') ? 'X' : ' '} )`, margin + 85, 76);
   doc.text(`Profesional ( ${area.includes('prof') ? 'X' : ' '} )`, margin + 135, 76);
+  
   // 3. Tabla de Asistencia
   doc.setFont("helvetica", "bold").text("LISTA DE ASISTENCIA DE TUTORADOS", pageWidth / 2, 90, { align: "center" });
   
@@ -155,6 +159,7 @@ export const generarF02 = (dataSesion, retornarDoc = false) => {
   }
   doc.line(centerX - 40, firmaY, centerX + 40, firmaY);
   doc.setFont("helvetica", "bold").text("Firma del Tutor(a)", centerX, firmaY + 5, { align: "center" });
+  
   // --- PARTE 2: ANEXO FOTOGRÁFICO EN HOJA NUEVA ---
   
   // 'foto_pdf' suele venir si es una imagen nueva en Base64 (desde el input file)
@@ -163,15 +168,13 @@ export const generarF02 = (dataSesion, retornarDoc = false) => {
   // Si no hay foto nueva, intentamos cargar la URL del servidor (edición sin cambio de foto)
   // 'evidencia_url' es la ruta relativa guardada en BD
   if (!imagenAnexo && sesion.evidencia_url) {
-      // Construimos la URL completa para fetch
-      // Asegúrate de que tu backend sirva archivos estáticos correctamente
       const urlCompleta = sesion.evidencia_url.startsWith('http') 
           ? sesion.evidencia_url 
           : `${BACKEND_URL}${sesion.evidencia_url}`;
       
       console.log("Cargando imagen de anexo desde:", urlCompleta);
 
-      // ESPERAMOS a que la imagen cargue antes de seguir
+      // AHORA SÍ: El await funciona porque la función principal es async
       const imgElement = await cargarImagen(urlCompleta);
       if (imgElement) {
           imagenAnexo = imgElement;
@@ -209,13 +212,12 @@ export const generarF02 = (dataSesion, retornarDoc = false) => {
     }
   }
 
-  // Guardar Archivo
-  // Reemplazamos barras en la fecha para que sea un nombre de archivo válido
+  // Guardar Archivo o Retornar
   const nombreFecha = (typeof fechaFmt === 'string') ? fechaFmt.replace(/\//g, '-') : 'fecha';
 
   if (retornarDoc) {
       return doc;
   } else {
-      doc.save(`F02_GRUPAL_${dataSesion.fecha}.pdf`);
+      doc.save(`F02_GRUPAL_${nombreFecha}.pdf`);
   }
 };

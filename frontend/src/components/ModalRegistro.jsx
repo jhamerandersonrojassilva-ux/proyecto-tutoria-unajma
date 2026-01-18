@@ -16,6 +16,7 @@ export default function ModalRegistro({ estudiante, onGuardar, onClose, sesionAE
   const [motivo, setMotivo] = useState('');
   const [acuerdos, setAcuerdos] = useState('');
   const [observaciones, setObservaciones] = useState('');
+  const [numeroSeguimiento, setNumeroSeguimiento] = useState("1"); // NUEVO CAMPO
 
   // --- ESTADOS VISUALES (CONTROL DE FIRMAS) ---
   // true = Muestra el Canvas (para firmar)
@@ -29,24 +30,32 @@ export default function ModalRegistro({ estudiante, onGuardar, onClose, sesionAE
   const firmaTutorRef = useRef(null);
   const firmaEstudianteRef = useRef(null);
 
-  // --- 1. EFECTO DE CARGA DE DATOS ---
+  // --- 1. EFECTO DE CARGA DE DATOS (EDICIÓN) ---
   useEffect(() => {
     if (sesionAEditar) {
-      // 1. CARGA DE TEXTOS
+      // A. CARGA DE TEXTOS
       setMotivo(sesionAEditar.motivo_consulta || '');
       setAcuerdos(sesionAEditar.acuerdos_compromisos || '');
       setObservaciones(sesionAEditar.observaciones || '');
       
-      // 2. AJUSTE DE ZONA HORARIA (FECHA)
+      // B. AJUSTE DE FECHA
       if (sesionAEditar.fecha) {
         const fechaGuardada = new Date(sesionAEditar.fecha);
         const fechaAjustada = new Date(fechaGuardada.getTime() - (fechaGuardada.getTimezoneOffset() * 60000));
         setFecha(fechaAjustada.toISOString().slice(0, 16));
       }
+
+      // C. RECUPERAR NÚMERO DE SEGUIMIENTO (DEL JSON)
+      if (sesionAEditar.desarrollo_entrevista) {
+        try {
+          const extra = typeof sesionAEditar.desarrollo_entrevista === 'string'
+            ? JSON.parse(sesionAEditar.desarrollo_entrevista)
+            : sesionAEditar.desarrollo_entrevista;
+          if (extra?.numero_seguimiento) setNumeroSeguimiento(extra.numero_seguimiento);
+        } catch (e) {}
+      }
       
-      // 3. LÓGICA DE FIRMAS (CORREGIDO)
-      // Si hay URL, ocultamos el canvas (false) para ver la imagen.
-      // Si no hay URL, mostramos el canvas (true) para dibujar.
+      // D. LÓGICA DE FIRMAS
       if (sesionAEditar.firma_tutor_url) {
           setEditarFirmaTutor(false); 
       } else {
@@ -59,7 +68,7 @@ export default function ModalRegistro({ estudiante, onGuardar, onClose, sesionAE
           setEditarFirmaEst(true);
       }
 
-      setFirmaF01Cargada(false); // Reseteamos bandera F01
+      setFirmaF01Cargada(false);
 
     } else {
       // --- MODO NUEVO ---
@@ -67,19 +76,23 @@ export default function ModalRegistro({ estudiante, onGuardar, onClose, sesionAE
       setAcuerdos('');
       setObservaciones('');
       
-      setEditarFirmaTutor(true); // Mostrar canvas limpio
-      setEditarFirmaEst(true);   // Mostrar canvas limpio
+      // Calcular siguiente número
+      const total = (estudiante?.sesiones?.filter(s => s.tipo_formato === 'F04').length || 0) + 1;
+      setNumeroSeguimiento(String(total));
+      
+      setEditarFirmaTutor(true);
+      setEditarFirmaEst(true);
       setFirmaF01Cargada(false);
       
       setFecha(obtenerFechaLocal());
     }
-  }, [sesionAEditar]);
+  }, [sesionAEditar, estudiante]);
+
   // --- 2. LÓGICA IMPORTAR FIRMA DESDE F01 ---
   const fichaF01 = estudiante?.sesiones?.find(s => s.tipo_formato === 'F01');
   let firmaF01Url = null;
   if (fichaF01) {
     firmaF01Url = fichaF01.firma_estudiante_url;
-    // Soporte para versiones antiguas que guardaban JSON en desarrollo_entrevista
     if (!firmaF01Url && fichaF01.desarrollo_entrevista) {
       try {
         const d = typeof fichaF01.desarrollo_entrevista === 'string' 
@@ -111,14 +124,13 @@ export default function ModalRegistro({ estudiante, onGuardar, onClose, sesionAE
         img.onload = () => {
           sigCanvas.clear();
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // IMPORTANTE: Marcamos que ya hay firma, aunque el pad diga isEmpty()
           setFirmaF01Cargada(true); 
         };
       }
     }, 100); 
   };
 
-  // --- 3. RECALIBRACIÓN CANVAS (Responsive) ---
+  // --- 3. RECALIBRACIÓN CANVAS ---
   useEffect(() => {
     if (editarFirmaTutor || editarFirmaEst) {
       const timer = setTimeout(() => {
@@ -139,44 +151,64 @@ export default function ModalRegistro({ estudiante, onGuardar, onClose, sesionAE
   }, [editarFirmaTutor, editarFirmaEst]);
 
   // --- 4. HANDLE SUBMIT (GUARDAR) ---
-  // Reemplaza la función handleSubmit dentro de ModalRegistro.jsx con esta:
-const handleSubmit = (e) => {
-  e.preventDefault();
-  
-  let fTutorFinal = null;
-  if (editarFirmaTutor) {
-    fTutorFinal = (firmaTutorRef.current && !firmaTutorRef.current.isEmpty()) 
-      ? firmaTutorRef.current.getCanvas().toDataURL('image/png') 
-      : null;
-  } else {
-    fTutorFinal = sesionAEditar?.firma_tutor_url || sesionAEditar?.firma_tutor;
-  }
+  // --- 4. HANDLE SUBMIT (GUARDAR) ---
+  const handleSubmit = (e) => {
+    e.preventDefault();
 
-  let fEstFinal = null;
-  if (editarFirmaEst) {
-    const ref = firmaEstudianteRef.current;
-    if (ref && (!ref.isEmpty() || firmaF01Cargada)) {
-       fEstFinal = ref.getCanvas().toDataURL('image/png');
-    } else { fEstFinal = null; }
-  } else {
-    fEstFinal = sesionAEditar?.firma_estudiante_url || sesionAEditar?.firma_estudiante;
-  }
+    // 1. OBTENER ID DEL TUTOR (CRÍTICO PARA EVITAR ERROR 500)
+    // Intentamos leer de 'user' o 'usuario' según como guardes la sesión
+    const session = JSON.parse(localStorage.getItem('user') || localStorage.getItem('usuario') || '{}');
+    const tutorIdFinal = session.tutor_id || session.id;
 
-  // --- EMPAQUETADO PARA EL BACKEND ---
-  onGuardar({ 
-    id: sesionAEditar?.id,
-    fecha: fecha, 
-    motivo_consulta: motivo, 
-    acuerdos_compromisos: acuerdos,
-    observaciones: observaciones || "", 
-    firma_tutor_url: fTutorFinal,
-    firma_estudiante_url: fEstFinal,
-    tipo_formato: 'F04',
-    estudiante_id: estudiante?.id // Aseguramos que viaje el ID
-  });
-};
+    if (!tutorIdFinal) {
+        alert("❌ Error: No se detectó la sesión del tutor. Por favor, recarga la página.");
+        return;
+    }
+    
+    // 2. PROCESAR FIRMA TUTOR
+    let fTutorFinal = null;
+    if (editarFirmaTutor) {
+      fTutorFinal = (firmaTutorRef.current && !firmaTutorRef.current.isEmpty()) 
+        ? firmaTutorRef.current.getCanvas().toDataURL('image/png') 
+        : null;
+    } else {
+      fTutorFinal = sesionAEditar?.firma_tutor_url || sesionAEditar?.firma_tutor;
+    }
+
+    // 3. PROCESAR FIRMA ESTUDIANTE
+    let fEstFinal = null;
+    if (editarFirmaEst) {
+      const ref = firmaEstudianteRef.current;
+      if (ref && (!ref.isEmpty() || firmaF01Cargada)) {
+         fEstFinal = ref.getCanvas().toDataURL('image/png');
+      } else { fEstFinal = null; }
+    } else {
+      fEstFinal = sesionAEditar?.firma_estudiante_url || sesionAEditar?.firma_estudiante;
+    }
+
+    // 4. EMPAQUETAR DATOS EXTRA (NÚMERO DE SEGUIMIENTO)
+    const datosExtra = JSON.stringify({
+        numero_seguimiento: String(numeroSeguimiento) // Convertimos a string por seguridad
+    });
+
+    // 5. ENVIAR AL PADRE (CON TODOS LOS CAMPOS REQUERIDOS)
+    onGuardar({ 
+      id: sesionAEditar?.id,
+      fecha: fecha, 
+      motivo_consulta: motivo, 
+      acuerdos_compromisos: acuerdos,
+      observaciones: observaciones || "", 
+      firma_tutor_url: fTutorFinal,
+      firma_estudiante_url: fEstFinal,
+      tipo_formato: 'F04',
+      estudiante_id: estudiante?.id,
+      tutor_id: tutorIdFinal, // <--- ESTO FALTABA Y CAUSABA EL ERROR 500
+      desarrollo_entrevista: datosExtra 
+    });
+  };
 
   const btnStyle = { fontSize: '10px', cursor: 'pointer', border: '1px solid', borderRadius: '4px', padding: '2px 8px', background: 'white' };
+  
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
       <div style={{ backgroundColor: 'white', padding: '15px 40px', borderRadius: '8px', width: '750px', maxHeight: '98vh', overflowY: 'auto' }}>
@@ -202,15 +234,30 @@ const handleSubmit = (e) => {
           <div style={{ marginBottom: '15px', lineHeight: '2' }}>
             <p><strong>Nombre y Apellidos del Tutorado:</strong> {estudiante?.nombres_apellidos}</p>
             <p><strong>Escuela Profesional:</strong> {estudiante?.escuela_profesional || 'EPIS'}</p>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <strong>Fecha:</strong>
-              <input 
-                type="datetime-local" 
-                style={{ padding: '4px', border: '1px solid #ccc', borderRadius: '4px' }} 
-                value={fecha} 
-                onChange={(e) => setFecha(e.target.value)} 
-                required 
-              />
+            
+            {/* FECHA Y NÚMERO EN LA MISMA LÍNEA */}
+            <div style={{ display: 'flex', gap: '20px', alignItems: 'center', marginTop: '10px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <strong>Fecha:</strong>
+                <input 
+                  type="datetime-local" 
+                  style={{ padding: '4px', border: '1px solid #ccc', borderRadius: '4px' }} 
+                  value={fecha} 
+                  onChange={(e) => setFecha(e.target.value)} 
+                  required 
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <strong>N° Seguimiento:</strong>
+                <input 
+                  type="number" 
+                  min="1"
+                  style={{ padding: '4px', width: '60px', border: '1px solid #ccc', borderRadius: '4px' }} 
+                  value={numeroSeguimiento} 
+                  onChange={(e) => setNumeroSeguimiento(e.target.value)} 
+                  required 
+                />
+              </div>
             </div>
           </div>
 

@@ -22,7 +22,7 @@ import Swal from 'sweetalert2';
 
 // --- UTILIDADES Y GENERADORES ---
 import { generarF01 } from './utils/generadorF01';
-import { generarF04 } from './utils/generadorPDF';
+import { generarF04 } from './utils/generadorF04';
 import { generarF05 } from './utils/generadorF05';
 import { generarF02 } from './utils/generadorF02';
 import { generarF03 } from './utils/generadorF03';

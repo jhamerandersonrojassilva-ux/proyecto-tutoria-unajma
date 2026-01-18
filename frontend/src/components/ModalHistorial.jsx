@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import api from '../api/axios';
 import { toast } from 'sonner';
-import { generarF04 } from '../utils/generadorPDF'; 
+import { generarF04 } from '../utils/generadorF04'; 
 import { generarF05 } from '../utils/generadorF05';
 import { generarF01 } from '../utils/generadorF01';
 import { generarF02 } from '../utils/generadorF02'; 
