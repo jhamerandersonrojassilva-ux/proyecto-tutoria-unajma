@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf'; 
 
-export const generarF05 = (sesion, estudiante) => {
+export const generarF05 = (sesion, estudiante, retornarDoc = false) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
 
@@ -141,5 +141,9 @@ export const generarF05 = (sesion, estudiante) => {
 
   // Guardar archivo
   const nombreArchivo = `F05_Derivacion_${(estudiante.nombres_apellidos || 'Estudiante').replace(/ /g, '_')}.pdf`;
-  doc.save(nombreArchivo);
+  if (retornarDoc) {
+      return doc;
+  } else {
+      doc.save(`F05_DERIVACION_${estudiante.codigo_estudiante}.pdf`);
+  }
 };

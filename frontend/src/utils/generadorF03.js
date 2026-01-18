@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 
-export const generarF03 = (datos, estudiante) => {
+export const generarF03 = (sesion, estudiante, retornarDoc = false) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -219,5 +219,9 @@ export const generarF03 = (datos, estudiante) => {
 
   // Guardar
   const nombreLimpio = (estudiante.nombres_apellidos || "Estudiante").replace(/[^a-zA-Z0-9]/g, '_');
-  doc.save(`F03_Entrevista_${nombreLimpio}.pdf`);
+  if (retornarDoc) {
+      return doc;
+  } else {
+      doc.save(`F03_ENTREVISTA_${estudiante.codigo_estudiante}.pdf`);
+  }
 };

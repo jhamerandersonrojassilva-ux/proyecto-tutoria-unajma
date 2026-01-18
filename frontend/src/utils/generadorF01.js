@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-export const generarF01 = (datosRaw, estudiante) => {
+export const generarF01 = (datosRaw, estudiante, retornarDoc = false) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -19,6 +19,7 @@ export const generarF01 = (datosRaw, estudiante) => {
         : datosRaw.desarrollo_entrevista;
     } catch (e) { console.error("Error parseando JSON", e); }
   }
+  // Fusionamos todo (datosRaw tiene prioridad si son los del formulario actual)
   const datos = { ...datosJSON, ...datosRaw };
 
   // --- 2. FUNCIONES DE DIBUJO ---
@@ -46,9 +47,13 @@ export const generarF01 = (datosRaw, estudiante) => {
     doc.setFont("helvetica", "normal").setFontSize(9);
     doc.text(pregunta, xStart, yPos);
     const labelWidth = doc.getTextWidth(pregunta);
+    
+    // Dibujar respuesta
     const lineStart = xStart + labelWidth + 1;
     doc.setFont("helvetica", "bold");
     doc.text(validar(respuesta), lineStart + 1, yPos - 0.5);
+    
+    // Dibujar línea
     doc.setLineWidth(0.1).setDrawColor(150);
     doc.line(lineStart, yPos + 0.5, xEnd, yPos + 0.5);
   };
@@ -73,22 +78,29 @@ export const generarF01 = (datosRaw, estudiante) => {
   doc.setFontSize(11).setFont("helvetica", "bold").text("FICHA INTEGRAL DEL TUTORADO (Formato 1)", pageWidth / 2, yPos, { align: 'center' });
   yPos += 8;
 
+  // ==============================
   // I. DATOS PERSONALES
+  // ==============================
   doc.setFontSize(10).setFont("helvetica", "bold").text("I. DATOS PERSONALES", margin, yPos);
   yPos += 7;
+  
   dibujarPreguntaFisica("Apellidos y Nombres: ", estudiante.nombres_apellidos, margin, pageWidth - margin);
   yPos += 8;
 
   const fNac = validar(datos.fecha_nacimiento);
   const [anio, mes, dia] = fNac.includes('-') ? fNac.split('-') : ["", "", ""];
+  
   doc.setFont("helvetica", "normal").text("Fecha de Nacimiento: ", margin, yPos);
   let curX = margin + doc.getTextWidth("Fecha de Nacimiento: ");
+  
+  // Dibujo manual de la fecha para formato dd/mm/yyyy
   doc.setFont("helvetica", "bold");
   doc.text(dia, curX + 1, yPos - 0.5); doc.line(curX, yPos + 0.5, curX + 8, yPos + 0.5); curX += 9;
   doc.text("/", curX, yPos); curX += 3;
   doc.text(mes, curX + 1, yPos - 0.5); doc.line(curX, yPos + 0.5, curX + 8, yPos + 0.5); curX += 9;
   doc.text("/", curX, yPos); curX += 3;
   doc.text(anio, curX + 1, yPos - 0.5); doc.line(curX, yPos + 0.5, curX + 15, yPos + 0.5); curX += 20;
+  
   dibujarPreguntaFisica("Edad: ", datos.edad, curX, curX + 15); curX += 22;
   dibujarPreguntaFisica("N° DNI: ", estudiante.dni || datos.dni, curX, pageWidth - margin);
   yPos += 8;
@@ -113,9 +125,23 @@ export const generarF01 = (datosRaw, estudiante) => {
   dibujarPreguntaFisica("Año de ingreso: ", datos.año_ingreso, margin, margin + 45);
   dibujarPreguntaFisica(" Código: ", estudiante.codigo_estudiante, margin + 45, margin + 105);
   dibujarPreguntaFisica(" Ciclo actual: ", datos.ciclo_actual, margin + 105, pageWidth - margin);
-  yPos += 12;
+  yPos += 8;
 
+  // --- AQUÍ ESTÁ LO QUE PEDISTE: EMERGENCIA Y TUTOR AL FINAL DE LA SECCIÓN I ---
+  
+  // 1. Datos de Emergencia
+  dibujarPreguntaFisica("Teléfonos en caso de emergencia: ", datos.tel_emergencia, margin, pageWidth - 90);
+  dibujarPreguntaFisica("Referencia: ", datos.referencia_emergencia, pageWidth - 85, pageWidth - margin);
+  yPos += 8;
+
+  // 2. Nombre del Tutor (Última línea de la sección)
+  dibujarPreguntaFisica("Nombre del Docente Tutor: ", datos.nombre_tutor, margin, pageWidth - margin);
+  
+  yPos += 12; // Espacio antes de Sección II
+
+  // ==============================
   // II. CONDICIONES DE SALUD
+  // ==============================
   verificarYSalto(35);
   doc.setFont("helvetica", "bold").text("II. CONDICIONES DE SALUD", margin, yPos);
   yPos += 7;
@@ -134,7 +160,9 @@ export const generarF01 = (datosRaw, estudiante) => {
   dibujarPreguntaFisica(" ¿Cuáles?", datos.salud_medicamentos_cuales, margin + 65, pageWidth - margin);
   yPos += 12;
 
+  // ==============================
   // III. COMPOSICIÓN FAMILIAR
+  // ==============================
   verificarYSalto(30);
   doc.setFont("helvetica", "bold").text("III. COMPOSICIÓN FAMILIAR", margin, yPos);
   autoTable(doc, {
@@ -145,7 +173,9 @@ export const generarF01 = (datosRaw, estudiante) => {
   });
   yPos = doc.lastAutoTable.finalY + 12;
 
+  // ==============================
   // IV. CONDICIÓN LABORAL
+  // ==============================
   verificarYSalto(35);
   doc.setFont("helvetica", "bold").text("IV. CONDICIÓN LABORAL", margin, yPos);
   yPos += 7;
@@ -164,7 +194,9 @@ export const generarF01 = (datosRaw, estudiante) => {
   doc.line(margin + 100 + wHor, yPos + 0.5, pageWidth - margin, yPos + 0.5);
   yPos += 12;
 
+  // ==============================
   // V. ÁREA PERSONAL
+  // ==============================
   verificarYSalto(15);
   doc.setFont("helvetica", "bold").text("V. ÁREA PERSONAL", margin, yPos);
   yPos += 7;
@@ -188,7 +220,9 @@ export const generarF01 = (datosRaw, estudiante) => {
   dibujarPreguntaSubrayada("¿Cómo reaccionas ante un problema?", datos.reaccion_problema);
   dibujarPreguntaSubrayada("¿Cuándo tienes un problema a quién recurres?", datos.recurre_a);
 
+  // ==============================
   // VI. ÁREA ACADÉMICA
+  // ==============================
   verificarYSalto(15);
   doc.setFont("helvetica", "bold").text("VI. ÁREA ACADÉMICA", margin, yPos);
   yPos += 7;
@@ -235,7 +269,9 @@ export const generarF01 = (datosRaw, estudiante) => {
   yPos += 6;
   dibujarPreguntaSubrayada("Menciónalas:", datos.mencion_tecnicas);
 
+  // ==============================
   // VII. ÁREA PROFESIONAL
+  // ==============================
   verificarYSalto(15);
   doc.setFont("helvetica", "bold").text("VII. ÁREA PROFESIONAL", margin, yPos);
   yPos += 7;
@@ -248,9 +284,10 @@ export const generarF01 = (datosRaw, estudiante) => {
   dibujarPreguntaSubrayada("¿Te sientes identificado con tu Escuela?", datos.identificado_escuela);
   dibujarPreguntaSubrayada("¿En qué desearías que mejore tu Escuela?", datos.mejoras_escuela);
 
-  // --- SOLUCIÓN DE FIRMAS (ACEPTA URL Y BASE64) ---
+  // ==============================
+  // FIRMAS
+  // ==============================
   const alturaBloqueFirmas = 45; 
-  
   if (yPos > pageHeight - alturaBloqueFirmas - 25) {
       doc.addPage();
       dibujarEncabezado(doc);
@@ -259,7 +296,7 @@ export const generarF01 = (datosRaw, estudiante) => {
       yPos += 25; 
   }
 
-  // AQUÍ ESTÁ EL ARREGLO: Verifica ambas propiedades
+  // Compatibilidad de nombres de propiedades
   const fTutor = datos.firma_tutor_url || datos.firma_tutor;
   const fEst = datos.firma_estudiante_url || datos.firma_estudiante;
 
@@ -279,5 +316,9 @@ export const generarF01 = (datosRaw, estudiante) => {
   doc.line(pageWidth - margin - 75, yPos, pageWidth - margin - 5, yPos);
   doc.text("Firma del Estudiante Tutorado(a)", pageWidth - margin - 40, yPos + 5, { align: 'center' });
 
-  doc.save(`F01_INTEGRAL_${estudiante.codigo_estudiante}.pdf`);
+  if (retornarDoc) {
+      return doc; // Retorna el objeto PDF para que el ZIP lo use
+  } else {
+      doc.save(`F01_INTEGRAL_${estudiante.codigo_estudiante}.pdf`); // Comportamiento normal
+  }
 };

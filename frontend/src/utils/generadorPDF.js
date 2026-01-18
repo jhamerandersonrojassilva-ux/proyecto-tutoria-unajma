@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 
-export const generarF04 = (sesion, estudiante, numeroSeguimiento = 1) => {
+export const generarF04 = (sesion, estudiante, retornarDoc = false) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -93,5 +93,9 @@ export const generarF04 = (sesion, estudiante, numeroSeguimiento = 1) => {
   doc.line(125, yFirma, 185, yFirma);
   doc.text("Firma del estudiante tutorado", 155, yFirma + 5, { align: 'center' });
 
-  doc.save(`F04_${estudiante.codigo_estudiante}_Seg${numeroSeguimiento}.pdf`);
+  if (retornarDoc) {
+      return doc; // Retorna el objeto para el ZIP
+  } else {
+      doc.save(`F04_SEGUIMIENTO_${estudiante.codigo_estudiante}_${sesion.fecha.split('T')[0]}.pdf`);
+  }
 };

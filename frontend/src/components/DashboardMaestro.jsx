@@ -33,12 +33,12 @@ export default function DashboardMaestro({
     estudiantes = [], 
     onNuevaSesion, 
     onVerHistorial, 
-    onDerivar,
+    onDerivar, 
     onNuevaFichaIntegral, 
     onEditarFicha, 
     onDescargarPDF, 
-    onEliminarRegistro,
-    onAbrirModalGrupal,
+    onEliminarRegistro, 
+    onAbrirModalGrupal, 
     onNuevaFichaEntrevista,
     bloqueado 
 }) {
@@ -143,21 +143,19 @@ export default function DashboardMaestro({
         if (bloqueado) return Swal.fire('Bloqueado', 'Panel en modo lectura.', 'error');
         if (!idSesion) return toast.error("ID no válido");
         
-        const sesionEncontrada = estudianteParaHistorial?.sesiones?.find(s => s.id === idSesion) || enfoqueDerecho?.sesiones?.find(s => s.id === idSesion);
-        const registroAEliminar = sesionEncontrada || { id: idSesion, tipo_formato: 'F04' };
+        try { 
+            await api.delete(`/sesiones/${idSesion}`); 
+            toast.success("Registro eliminado");
+            
+            if (mostrarModalHistorial && estudianteParaHistorial) {
+                setEstudianteParaHistorial(prev => ({ ...prev, sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : [] }));
+            }
+            if (enfoqueDerecho) {
+                setEnfoqueDerecho(prev => ({ ...prev, sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : [] }));
+            }
+            if (onEliminarRegistro) setTimeout(() => window.location.reload(), 500); 
 
-        if (mostrarModalHistorial && estudianteParaHistorial) {
-            setEstudianteParaHistorial(prev => ({ ...prev, sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : [] }));
-        }
-        if (enfoqueDerecho) {
-            setEnfoqueDerecho(prev => ({ ...prev, sesiones: prev.sesiones ? prev.sesiones.filter(s => s.id !== idSesion) : [] }));
-        }
-
-        if (onEliminarRegistro) {
-            await onEliminarRegistro(registroAEliminar);
-        } else {
-            try { await api.delete(`/sesiones/${idSesion}`); toast.success("Registro eliminado"); } catch(e) { console.error(e); }
-        }
+        } catch(e) { console.error(e); toast.error("Error al eliminar"); }
     };
 
     const abrirExpediente = async (estudiante) => {
@@ -177,8 +175,10 @@ export default function DashboardMaestro({
 
                 datosParaModal = {
                     ...estudiante, ...contenidoGuardado,
-                    id: fichaExistente.id,
-                    estudiante_id: estudiante.id,
+                    // IMPORTANTE: Aquí se sobreescribía el ID. Guardamos ambos.
+                    id: fichaExistente.id, // ID de la SESIÓN (77)
+                    estudiante_id: estudiante.id, // ID del ESTUDIANTE (7)
+                    
                     firma_tutor_url: fichaExistente.firma_tutor_url || contenidoGuardado.firma_tutor_url,
                     firma_estudiante_url: fichaExistente.firma_estudiante_url || contenidoGuardado.firma_estudiante_url,
                     familiares: Array.isArray(contenidoGuardado.familiares) ? contenidoGuardado.familiares : []
@@ -214,69 +214,63 @@ export default function DashboardMaestro({
        } catch (error) { console.error("Error al refrescar historial:", error); }
     };
 
-    // --- FUNCIÓN DE GUARDADO DEFINITIVA (ROBUSTA) ---
+    // --- FUNCIÓN DE GUARDADO CORREGIDA (FIX ERROR 404/500/P2003) ---
+    // --- FUNCIÓN DE GUARDADO CORREGIDA (FIX NOMBRE TUTOR) ---
     const guardarFichaF01 = async (datosFicha) => {
         if (bloqueado) return Swal.fire('Bloqueado', 'Panel en modo lectura.', 'error');
         
         try {
-            const idEstudiante = parseInt(estudianteParaFicha?.id);
+            // 1. Obtener IDs
+            const idEstudiante = parseInt(
+                estudianteParaFicha?.estudiante_id || estudianteParaFicha?.id
+            );
             const idTutor = parseInt(user?.tutor_id || user?.id);
             
+            // 2. Preparar datos
             let datosCompletos = { ...datosFicha };
+            
             if (typeof datosFicha.desarrollo_entrevista === 'string') {
                 try { datosCompletos = { ...datosCompletos, ...JSON.parse(datosFicha.desarrollo_entrevista) }; } catch (e) {}
             }
-            // Aseguramos estructura
+            
             if (!Array.isArray(datosCompletos.familiares)) datosCompletos.familiares = [];
 
-            // Identificamos si es edición o creación
-            const idSesion = sesionF01Editar?.id || datosFicha.id || null;
-
+            // 3. PAYLOAD BLINDADO: INYECTAMOS EL NOMBRE DEL TUTOR
             const payload = {
-                id: idSesion, // Si es null, el backend crea nuevo
-                estudiante_id: idEstudiante, 
+                ...datosCompletos,
+                estudiante_id: idEstudiante,
                 tutor_id: idTutor,
-                tipo_formato: 'F01', 
-                motivo_consulta: 'Ficha Integral', 
-                fecha: new Date().toISOString(),
-                acuerdos_compromisos: datosCompletos.acuerdos_compromisos || "",
-                observaciones: datosCompletos.observaciones || "",
-                firma_tutor_url: datosCompletos.firma_tutor_url, 
-                firma_estudiante_url: datosCompletos.firma_estudiante_url,
-                desarrollo_entrevista: JSON.stringify(datosCompletos)
+                // AQUÍ ESTÁ LA SOLUCIÓN: Guardamos el nombre explícitamente para el PDF
+                nombre_tutor: user.nombres_apellidos || datosCompletos.nombre_tutor, 
+                fecha_nacimiento: datosCompletos.fecha_nacimiento ? new Date(datosCompletos.fecha_nacimiento).toISOString() : null,
+                
+                // Actualizamos el JSON string también con el nombre
+                desarrollo_entrevista: JSON.stringify({
+                    ...datosCompletos,
+                    nombre_tutor: user.nombres_apellidos || datosCompletos.nombre_tutor
+                })
             };
 
-            // Lógica de recuperación ante errores (Fallback)
-            if (idSesion) {
-                try {
-                    // Intento 1: Actualizar
-                    await api.put(`/sesiones/${idSesion}`, payload);
-                } catch (putError) {
-                    // Si falla porque no existe (404), creamos uno nuevo
-                    if (putError.response && putError.response.status === 404) {
-                        console.warn("La sesión no existía, creando nueva...");
-                        delete payload.id; // Importante: quitar ID para que sea POST
-                        await api.post('/sesiones', payload);
-                    } else {
-                        throw putError; // Otro error, lanzar
-                    }
-                }
-            } else {
-                // Crear nuevo directo
-                await api.post('/sesiones', payload);
-            }
+            console.log("📤 ENVIANDO CON NOMBRE TUTOR:", payload);
+
+            // 4. Enviar al Backend
+            await api.post('/sesiones-tutoria/f01', payload);
 
             toast.success("Ficha guardada exitosamente");
             setMostrarModalF01(false);
 
-            // RECARGA COMPLETA PARA SINCRONIZAR VISUALIZACIÓN (SOLUCIÓN DEFINITIVA A 'F5')
+            // 5. Recarga
             setTimeout(() => {
                 window.location.reload();
-            }, 1000);
+            }, 800);
 
         } catch (error) { 
-            console.error("Error crítico guardando ficha:", error);
-            toast.error("Error al guardar. Verifique su conexión."); 
+            console.error("Error guardando ficha:", error);
+            if (error.response?.data?.error) {
+                toast.error(`Error: ${error.response.data.error}`);
+            } else {
+                toast.error("No se pudo guardar. Intente nuevamente.");
+            }
         }
     };
     
@@ -312,11 +306,9 @@ export default function DashboardMaestro({
 
     // --- HELPER: Obtener correo seguro ---
     const obtenerCorreoReal = (est, f01) => {
-        // Prioridad BD
         if (est.correo_institucional) return est.correo_institucional;
         if (est.email) return est.email;
         if (est.correo) return est.correo;
-        // Prioridad Ficha F01
         if (f01 && f01.desarrollo_entrevista) {
             try {
                 const data = typeof f01.desarrollo_entrevista === 'string' ? JSON.parse(f01.desarrollo_entrevista) : f01.desarrollo_entrevista;
@@ -333,11 +325,15 @@ export default function DashboardMaestro({
         if (!f01 || !f01.desarrollo_entrevista) return null;
         try {
             const d = typeof f01.desarrollo_entrevista === 'string' ? JSON.parse(f01.desarrollo_entrevista) : f01.desarrollo_entrevista;
-            const nombre = d.contacto_emergencia || d.referencia_emergencia || d.nombre_emergencia;
-            const telf = d.tel_emergencia || d.telefono_emergencia || d.celular_emergencia;
+            
+            const nombre = d.contacto_emergencia || d.referencia_emergencia || d.nombre_emergencia || d.apoderado;
+            const telf = d.tel_emergencia || d.telefono_emergencia || d.celular_emergencia || d.celular_apoderado;
             
             if(!nombre && !telf) return null;
-            return { nombre: nombre || 'Sin nombre', telefono: telf || 'Sin N°' };
+            return { 
+                nombre: nombre || 'Nombre no registrado', 
+                telefono: telf || 'Teléfono no registrado' 
+            };
         } catch(e) { return null; }
     };
 
@@ -392,6 +388,7 @@ export default function DashboardMaestro({
                         <div style={styles.panelActions}>
                             <select value={filtroEscuela} onChange={(e) => setFiltroEscuela(e.target.value)} style={styles.selectFilter}>{escuelasDisponibles.map(e => <option key={e} value={e}>{e}</option>)}</select>
                             
+                            {/* BOTÓN GRUPAL BLOQUEADO */}
                             <button 
                                 onClick={onAbrirModalGrupal} 
                                 disabled={bloqueado} 
@@ -406,6 +403,7 @@ export default function DashboardMaestro({
                         </div>
                     </div>
                     <div style={styles.tableContainer}>
+                        {/* PASAMOS EL CANDADO A LA TABLA */}
                         <TablaEstudiantes
                             estudiantes={estudiantesFiltrados}
                             bloqueado={bloqueado} 
@@ -477,15 +475,21 @@ export default function DashboardMaestro({
                                         {enfoqueDerecho.escuela_profesional || "Ingeniería de Sistemas"}
                                     </div>
                                     
-                                    {/* CORREO SIEMPRE VISIBLE - BUSQUEDA ESTRICTA SIN INVENTAR */}
+                                    {/* 1. CORREO - Siempre visible y sin inventar */}
                                     <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display:'flex', alignItems:'center', gap:'5px' }}>
                                         📧 <span>{correoVisible}</span>
                                     </div>
 
-                                    {/* EMERGENCIA (SI EXISTE EN F01) */}
-                                    {datosEmergencia && (
-                                        <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', display:'flex', alignItems:'center', gap:'5px', fontWeight:'600' }}>
-                                            🆘 <span>{`${datosEmergencia.nombre} (${datosEmergencia.telefono})`}</span>
+                                    {/* 2. EMERGENCIA - Siempre visible si existe */}
+                                    {datosEmergencia ? (
+                                        <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fef2f2', borderLeft: '3px solid #ef4444', borderRadius: '4px' }}>
+                                            <div style={{ fontSize: '10px', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase' }}>🚨 Emergencia (Referencia)</div>
+                                            <div style={{ fontSize: '11px', color: '#1e293b', fontWeight: 'bold' }}>{datosEmergencia.nombre}</div>
+                                            <div style={{ fontSize: '11px', color: '#64748b' }}>📞 {datosEmergencia.telefono}</div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px', fontStyle: 'italic' }}>
+                                            Sin contacto de emergencia registrado
                                         </div>
                                     )}
 
@@ -620,7 +624,7 @@ export default function DashboardMaestro({
     );
 }
 
-// --- ESTILOS IGUALES AL ORIGINAL ---
+// --- ESTILOS ---
 const Chip = ({ label, active, onClick, color = '#3b82f6' }) => (<button onClick={onClick} style={{ padding: '6px 12px', borderRadius: '20px', border: active ? `1px solid ${color}` : '1px solid #e2e8f0', backgroundColor: active ? `${color}15` : 'white', color: active ? color : '#64748b', fontSize: '12px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }}>{label}</button>);
 const KpiCard = ({ label, value, icon, color, bg, trend }) => (<div style={styles.kpiCard}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}><div><div style={styles.kpiValue}>{value}</div><div style={styles.kpiLabel}>{label}</div></div><div style={{ ...styles.kpiIcon, backgroundColor: bg, color: color }}>{icon}</div></div><div style={{ marginTop: '10px', height: '4px', width: '100%', backgroundColor: '#f1f5f9', borderRadius: '2px', overflow: 'hidden' }}><div style={{ height: '100%', width: trend === 'up' ? '70%' : '40%', backgroundColor: color, opacity: 0.6 }}></div></div></div>);
 

@@ -9,6 +9,13 @@ const validar = (valor) => {
   return valor;
 };
 
+// --- HELPER PARA OBTENER NOMBRE DEL TUTOR SEGURO ---
+const getNombreTutor = (usuario) => {
+  if (!usuario) return '';
+  // Intenta buscar en varias propiedades comunes por si acaso
+  return usuario.nombres_apellidos || usuario.nombre || usuario.nombres || usuario.username || '';
+};
+
 export default function ModalFichaIntegral({ estudiante, user, onClose, onGuardar, sesionAEditar }) {
   const [paso, setPaso] = useState(1);
   const sigCanvasTutor = useRef(null);
@@ -22,7 +29,10 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
   const [datos, setDatos] = useState({
     fecha_nacimiento: '', edad: 0, lugar_nacimiento: '', direccion_actual: '', telefono: '',
     correo_institucional: '', estado_civil: 'soltero', año_ingreso: '', ciclo_actual: '',
-    nombre_tutor: user?.nombres_apellidos || '', tel_emergencia: '', referencia_emergencia: '',
+    
+    nombre_tutor: '', // Se llenará en el useEffect
+    
+    tel_emergencia: '', referencia_emergencia: '',
     escuela_profesional: 'Ingeniería de Sistemas',
     salud_enfermedad: 'No', salud_enfermedad_cual: '',
     salud_cirugia: 'No', salud_cirugia_cual: '',
@@ -41,9 +51,15 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
     firma_tutor: null, firma_estudiante: null
   });
 
-  // 2. EFECTO DE CARGA
+  // 2. EFECTO DE CARGA UNIFICADO (SOLUCIÓN DEFINITIVA)
   useEffect(() => {
+    // Diagnóstico en consola para verificar qué llega
+    console.log("👤 USUARIO RECIBIDO EN MODAL:", user);
+
+    const nombreTutorActual = getNombreTutor(user);
+
     if (sesionAEditar) {
+      // --- MODO EDICIÓN ---
       let infoCuestionario = {};
       if (sesionAEditar.desarrollo_entrevista) {
         try {
@@ -55,28 +71,25 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
 
       const base = { ...sesionAEditar, ...infoCuestionario };
 
-      // LOG PARA DEPURAR CARGA
-      console.log("📥 CARGANDO DATOS EXISTENTES:", {
-        id: sesionAEditar.id,
-        firmaTutorURL: sesionAEditar.firma_tutor_url ? "SI (URL)" : "NO",
-        firmaEstURL: sesionAEditar.firma_estudiante_url ? "SI (URL)" : "NO",
-        firmaTutorJSON: infoCuestionario.firma_tutor ? "SI (Base64)" : "NO"
-      });
+      // LÓGICA DE PRIORIDAD PARA EL NOMBRE:
+      // 1. Si el usuario actual tiene nombre, USARLO (para corregir registros viejos vacíos).
+      // 2. Si no, usar el guardado en la base de datos.
+      const nombreFinal = nombreTutorActual || base.nombre_tutor || '';
 
       setDatos(prev => ({
         ...prev,
         ...base,
         id: sesionAEditar.id,
+        nombre_tutor: nombreFinal, // Asignación forzada
+        
         correo_institucional: base.correo_institucional || estudiante?.correo_institucional || '',
         direccion_actual: base.direccion_actual || estudiante?.direccion_actual || '',
         ciclo_actual: base.ciclo_actual || estudiante?.ciclo_actual || '',
         fecha_nacimiento: base.fecha_nacimiento ? base.fecha_nacimiento.split('T')[0] : '',
         telefono: validar(base.telefono || base.celular || estudiante?.telefono),
-
-        // Lógica de recuperación de firma
+        
         firma_tutor: sesionAEditar.firma_tutor_url || infoCuestionario.firma_tutor || null,
         firma_estudiante: sesionAEditar.firma_estudiante_url || infoCuestionario.firma_estudiante || null,
-
         familiares: Array.isArray(base.familiares) ? base.familiares : prev.familiares
       }));
 
@@ -84,6 +97,7 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
       setCambiarFirmaEstudiante(false);
 
     } else if (estudiante) {
+      // --- MODO CREACIÓN (NUEVO) ---
       setDatos(prev => ({
         ...prev,
         escuela_profesional: estudiante.escuela_profesional || 'Ingeniería de Sistemas',
@@ -94,10 +108,13 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
         direccion_actual: estudiante.direccion_actual || '',
         año_ingreso: estudiante.anio_ingreso || new Date().getFullYear().toString(),
         ciclo_actual: estudiante.ciclo_actual || '',
-        firma_tutor: null, firma_estudiante: null
+        firma_tutor: null, firma_estudiante: null,
+        
+        // Asignación directa del usuario logueado
+        nombre_tutor: nombreTutorActual 
       }));
     }
-  }, [sesionAEditar, estudiante]);
+  }, [sesionAEditar, estudiante, user]); // Se ejecuta cada vez que 'user' cambia
 
   const calcularEdad = (f) => {
     if (!f) return 0;
@@ -139,51 +156,27 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
     }));
   };
 
-  // --- FINALIZAR CON DIAGNÓSTICO ---
-  // --- FINALIZAR CON LOGICA DE CAPTURA CORREGIDA ---
   const finalizarFicha = async (e) => {
     if (e) e.preventDefault(); 
     console.log("🚀 INICIANDO GUARDADO DE FICHA F01...");
 
     try {
-      // 1. Empezamos con lo que ya tengamos (URL de base de datos o null)
       let fTutor = datos.firma_tutor;
       let fEst = datos.firma_estudiante;
 
-      // 2. INTENTO DE CAPTURA DEL CANVAS (LÓGICA CORREGIDA)
-      // No importa si 'cambiarFirma' es true o false. 
-      // Si el componente Canvas está montado y tiene trazos, TIENE PRIORIDAD.
-      
-      // --- TUTOR ---
-      if (sigCanvasTutor.current) {
-        // isEmpty() devuelve true si el canvas está en blanco.
-        // Usamos !isEmpty() para saber si hay firma nueva.
-        if (!sigCanvasTutor.current.isEmpty()) {
+      if (sigCanvasTutor.current && !sigCanvasTutor.current.isEmpty()) {
            fTutor = sigCanvasTutor.current.getCanvas().toDataURL('image/png');
-           console.log("✅ (Tutor) Nuevo dibujo capturado del Canvas.");
-        } else {
-           console.log("ℹ️ (Tutor) Canvas vacío, conservando valor previo:", fTutor ? "URL Existente" : "Null");
-        }
       }
-
-      // --- ESTUDIANTE ---
-      if (sigCanvasEstudiante.current) {
-        if (!sigCanvasEstudiante.current.isEmpty()) {
+      if (sigCanvasEstudiante.current && !sigCanvasEstudiante.current.isEmpty()) {
            fEst = sigCanvasEstudiante.current.getCanvas().toDataURL('image/png');
-           console.log("✅ (Estudiante) Nuevo dibujo capturado del Canvas.");
-        } else {
-           console.log("ℹ️ (Estudiante) Canvas vacío, conservando valor previo:", fEst ? "URL Existente" : "Null");
-        }
       }
 
-      // 3. Limpieza del objeto JSON (Para no guardar basura en la columna JSON)
       const datosLimpios = { ...datos };
       delete datosLimpios.firma_tutor;
       delete datosLimpios.firma_estudiante;
       delete datosLimpios.firma_tutor_url;
       delete datosLimpios.firma_estudiante_url;
 
-      // 4. Construcción del Payload
       const payload = {
         ...datosLimpios,
         id: sesionAEditar?.id || null,
@@ -192,41 +185,30 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
         tipo_formato: 'F01',
         motivo_consulta: 'Ficha Integral',
         
-        // Datos Planos SQL
-        lugar_nacimiento: datos.lugar_nacimiento,
-        estado_civil: datos.estado_civil,
-        año_ingreso: datos.año_ingreso,
-        ciclo_actual: datos.ciclo_actual,
-        tel_emergencia: datos.tel_emergencia,
-        referencia_emergencia: datos.referencia_emergencia,
-        correo_institucional: datos.correo_institucional,
-        telefono: datos.telefono,
-        direccion_actual: datos.direccion_actual,
-
-        // ASIGNACIÓN CRÍTICA DE FIRMAS
         firma_tutor_url: fTutor,
         firma_estudiante_url: fEst,
+        
+        // IMPORTANTE: Enviamos el nombre explícito
+        nombre_tutor: datos.nombre_tutor, 
 
-        desarrollo_entrevista: JSON.stringify(datosLimpios),
+        desarrollo_entrevista: JSON.stringify({
+            ...datosLimpios,
+            nombre_tutor: datos.nombre_tutor 
+        }),
         fecha: sesionAEditar ? sesionAEditar.fecha : new Date().toISOString()
       };
 
-      // VERIFICACIÓN EN CONSOLA
-      console.log("📦 PAYLOAD FINAL:", {
-         Tutor_Length: payload.firma_tutor_url ? payload.firma_tutor_url.length : 0,
-         Est_Length: payload.firma_estudiante_url ? payload.firma_estudiante_url.length : 0
-      });
+      console.log("📦 PAYLOAD FINAL:", payload);
 
-      // 5. Enviar al Servidor
       await onGuardar(payload);
 
-      // 6. Generar PDF Localmente (Asegura que salga la firma recién hecha)
       const datosParaPDF = {
         ...datosLimpios,
         firma_tutor: fTutor,
         firma_estudiante: fEst,
         firma_tutor_url: fTutor,
-        firma_estudiante_url: fEst
+        firma_estudiante_url: fEst,
+        nombre_tutor: datos.nombre_tutor
       };
       
       generarF01(datosParaPDF, estudiante);
@@ -257,7 +239,52 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
         </div>
 
         <div style={contentStyle}>
-          {paso === 1 && ( <div style={sectionFadeIn}><h3 style={sectionTitleStyle}>I. DATOS PERSONALES</h3><div style={gridStyle}><div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Apellidos y Nombres</label><div style={readOnlyInput}>{estudiante?.nombres_apellidos}</div></div><div><label style={labelStyle}>N° DNI</label><div style={readOnlyInput}>{estudiante?.dni}</div></div><div><label style={labelStyle}>Fecha Nacimiento</label><input type="date" name="fecha_nacimiento" style={inputStyle} value={datos.fecha_nacimiento || ''} onChange={manejarCambio} /></div><div><label style={labelStyle}>Edad</label><div style={readOnlyInput}>{datos.edad > 0 ? `${datos.edad} años` : '---'}</div></div><div style={{ gridColumn: 'span 1' }}><label style={labelStyle}>Lugar de Nacimiento</label><input type="text" name="lugar_nacimiento" style={inputStyle} value={datos.lugar_nacimiento || ''} onChange={manejarCambio} /></div><div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Dirección Actual</label><input type="text" name="direccion_actual" style={inputStyle} value={datos.direccion_actual || ''} onChange={manejarCambio} /></div><div><label style={labelStyle}>Teléfono</label><input type="text" name="telefono" style={inputStyle} value={datos.telefono || ''} onChange={manejarCambio} /></div><div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Correo Institucional</label><input type="email" name="correo_institucional" style={inputStyle} value={datos.correo_institucional || ''} onChange={manejarCambio} /></div><div><label style={labelStyle}>Estado Civil</label><select name="estado_civil" style={inputStyle} value={datos.estado_civil || 'soltero'} onChange={manejarCambio}><option value="soltero">soltero</option><option value="casado">casado</option><option value="conviviente">conviviente</option></select></div><div style={{ gridColumn: 'span 3' }}><label style={labelStyle}>Escuela Profesional</label><div style={readOnlyInput}>{datos.escuela_profesional}</div></div><div><label style={labelStyle}>Año de Ingreso</label><input type="text" name="año_ingreso" style={inputStyle} value={datos.año_ingreso || ''} onChange={manejarCambio} /></div><div><label style={labelStyle}>Código</label><div style={readOnlyInput}>{estudiante?.codigo_estudiante}</div></div><div><label style={labelStyle}>Ciclo Actual</label><input type="text" name="ciclo_actual" style={inputStyle} value={datos.ciclo_actual || ''} onChange={manejarCambio} /></div><div style={{ gridColumn: 'span 3' }}><label style={labelStyle}>Nombre del Tutor</label><div style={readOnlyInput}>{datos.nombre_tutor}</div></div><div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Teléfonos de emergencia</label><input type="text" name="tel_emergencia" style={inputStyle} value={datos.tel_emergencia || ''} onChange={manejarCambio} /></div><div><label style={labelStyle}>Referencia</label><input type="text" name="referencia_emergencia" style={inputStyle} value={datos.referencia_emergencia || ''} onChange={manejarCambio} /></div></div></div> )}
+          {/* PASO 1: DATOS PERSONALES */}
+          {paso === 1 && ( 
+            <div style={sectionFadeIn}>
+              <h3 style={sectionTitleStyle}>I. DATOS PERSONALES</h3>
+              <div style={gridStyle}>
+                
+                {/* CAMPO NOMBRE TUTOR */}
+                <div style={{ gridColumn: 'span 3', marginBottom: '10px' }}>
+                    <label style={labelStyle}>DOCENTE TUTOR ASIGNADO</label>
+                    <input 
+                        type="text" 
+                        name="nombre_tutor"
+                        value={datos.nombre_tutor} 
+                        onChange={manejarCambio} 
+                        placeholder="Escriba su nombre aquí si no aparece..."
+                        style={{ ...inputStyle, backgroundColor: '#fff', border: '2px solid #3b82f6', fontWeight: 'bold' }} 
+                    />
+                </div>
+
+                <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Apellidos y Nombres</label><div style={readOnlyInput}>{estudiante?.nombres_apellidos}</div></div>
+                <div><label style={labelStyle}>N° DNI</label><div style={readOnlyInput}>{estudiante?.dni}</div></div>
+                <div><label style={labelStyle}>Fecha Nacimiento</label><input type="date" name="fecha_nacimiento" style={inputStyle} value={datos.fecha_nacimiento || ''} onChange={manejarCambio} /></div>
+                <div><label style={labelStyle}>Edad</label><div style={readOnlyInput}>{datos.edad > 0 ? `${datos.edad} años` : '---'}</div></div>
+                <div style={{ gridColumn: 'span 1' }}><label style={labelStyle}>Lugar de Nacimiento</label><input type="text" name="lugar_nacimiento" style={inputStyle} value={datos.lugar_nacimiento || ''} onChange={manejarCambio} /></div>
+                <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Dirección Actual</label><input type="text" name="direccion_actual" style={inputStyle} value={datos.direccion_actual || ''} onChange={manejarCambio} /></div>
+                <div><label style={labelStyle}>Teléfono</label><input type="text" name="telefono" style={inputStyle} value={datos.telefono || ''} onChange={manejarCambio} /></div>
+                <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Correo Institucional</label><input type="email" name="correo_institucional" style={inputStyle} value={datos.correo_institucional || ''} onChange={manejarCambio} /></div>
+                <div><label style={labelStyle}>Estado Civil</label><select name="estado_civil" style={inputStyle} value={datos.estado_civil || 'soltero'} onChange={manejarCambio}><option value="soltero">soltero</option><option value="casado">casado</option><option value="conviviente">conviviente</option></select></div>
+                <div style={{ gridColumn: 'span 3' }}><label style={labelStyle}>Escuela Profesional</label><div style={readOnlyInput}>{datos.escuela_profesional}</div></div>
+                <div><label style={labelStyle}>Año de Ingreso</label><input type="text" name="año_ingreso" style={inputStyle} value={datos.año_ingreso || ''} onChange={manejarCambio} /></div>
+                <div><label style={labelStyle}>Código</label><div style={readOnlyInput}>{estudiante?.codigo_estudiante}</div></div>
+                <div><label style={labelStyle}>Ciclo Actual</label><input type="text" name="ciclo_actual" style={inputStyle} value={datos.ciclo_actual || ''} onChange={manejarCambio} /></div>
+                
+                {/* CAMPOS EMERGENCIA */}
+                <div style={{ gridColumn: 'span 3', borderTop: '1px solid #e2e8f0', marginTop: '10px', paddingTop: '10px' }}>
+                    <h4 style={{ fontSize: '12px', color: '#ef4444', margin: '0 0 10px 0' }}>🚨 CONTACTO DE EMERGENCIA</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                        <div><label style={labelStyle}>Nombre/Referencia</label><input type="text" name="referencia_emergencia" style={inputStyle} value={datos.referencia_emergencia || ''} onChange={manejarCambio} placeholder="Ej: Madre, Tío Juan..." /></div>
+                        <div><label style={labelStyle}>Teléfono Emergencia</label><input type="text" name="tel_emergencia" style={inputStyle} value={datos.tel_emergencia || ''} onChange={manejarCambio} placeholder="999..." /></div>
+                    </div>
+                </div>
+              </div>
+            </div> 
+          )}
+
+          {/* RESTO DE PASOS (Sin cambios estructurales, solo formato) */}
           {paso === 2 && ( <div style={sectionFadeIn}><h3 style={sectionTitleStyle}>II. CONDICIONES DE SALUD</h3><div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}><HealthField label="Padece enfermedad o discapacidad" nameRadio="salud_enfermedad" nameText="salud_enfermedad_cual" valueRadio={datos.salud_enfermedad} valueText={datos.salud_enfermedad_cual} onChange={manejarCambio} /><HealthField label="Ha tenido intervención quirúrgica" nameRadio="salud_cirugia" nameText="salud_cirugia_cual" valueRadio={datos.salud_cirugia} valueText={datos.salud_cirugia_cual} onChange={manejarCambio} /><HealthField label="Toma medicamentos" nameRadio="salud_medicamentos" nameText="salud_medicamentos_cuales" valueRadio={datos.salud_medicamentos} valueText={datos.salud_medicamentos_cuales} onChange={manejarCambio} /></div></div> )}
           {paso === 3 && ( <div style={sectionFadeIn}><h3 style={sectionTitleStyle}>III. COMPOSICIÓN FAMILIAR</h3><div style={{ overflowX: 'auto', border: '1.5px solid #004a99', borderRadius: '10px' }}><table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr style={{ backgroundColor: '#004a99', color: 'white' }}><th style={thStyle}>Nombres</th><th style={thStyle}>Parentesco</th><th style={thStyle}>Edad</th><th style={thStyle}>Ocupación</th><th style={thStyle}>¿Vive contigo?</th></tr></thead><tbody>{datos.familiares.map((f, i) => (<tr key={i} style={{ borderBottom: '1px solid #cbd5e1' }}><td style={tdStyle}><input type="text" name="nombres" style={tableInput} value={f.nombres || ''} onChange={(e) => manejarFamiliar(i, e)} /></td><td style={tdStyle}><input type="text" name="parentesco" style={tableInput} value={f.parentesco || ''} onChange={(e) => manejarFamiliar(i, e)} /></td><td style={tdStyle}><input type="number" name="edad" style={tableInput} value={f.edad || ''} onChange={(e) => manejarFamiliar(i, e)} /></td><td style={tdStyle}><input type="text" name="ocupacion" style={tableInput} value={f.ocupacion || ''} onChange={(e) => manejarFamiliar(i, e)} /></td><td style={tdStyle}><select name="vive_contigo" style={tableInput} value={f.vive_contigo || 'Si'} onChange={(e) => manejarFamiliar(i, e)}><option value="Si">Si</option><option value="No">No</option></select></td></tr>))}</tbody></table></div><button type="button" onClick={agregarFamiliar} style={{ ...clearBtn, marginTop: '10px' }}>+ Agregar Familiar</button></div> )}
           {paso === 4 && ( <div style={sectionFadeIn}><h3 style={sectionTitleStyle}>IV. CONDICIÓN LABORAL</h3><div style={gridStyle}><div><label style={labelStyle}>¿Trabajas actualmente?</label><select name="trabaja_actualmente" style={inputStyle} value={datos.trabaja_actualmente} onChange={manejarCambio}><option value="Si">Si</option><option value="No">No</option></select></div><div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>¿Donde?</label><input type="text" name="lugar_trabajo" style={inputStyle} value={datos.lugar_trabajo || ''} onChange={manejarCambio} disabled={datos.trabaja_actualmente === 'No'} /></div><div><label style={labelStyle}>¿Cargo?</label><input type="text" name="cargo_trabajo" style={inputStyle} value={datos.cargo_trabajo || ''} onChange={manejarCambio} disabled={datos.trabaja_actualmente === 'No'} /></div><div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>Horario</label><input type="text" name="horario_trabajo" style={inputStyle} value={datos.horario_trabajo || ''} onChange={manejarCambio} disabled={datos.trabaja_actualmente === 'No'} /></div></div></div> )}
@@ -278,8 +305,6 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
 
               {/* SECCIÓN DE FIRMAS */}
               <div style={{ marginTop: '30px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
-                
-                {/* FIRMA TUTOR */}
                 <div style={{ textAlign: 'center' }}>
                   <label style={labelStyle}>Firma Tutor</label>
                   <div style={canvasWrapper}>
@@ -301,7 +326,6 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
                   )}
                 </div>
 
-                {/* FIRMA ESTUDIANTE */}
                 <div style={{ textAlign: 'center' }}>
                   <label style={labelStyle}>Firma Estudiante</label>
                   <div style={canvasWrapper}>
@@ -332,7 +356,6 @@ export default function ModalFichaIntegral({ estudiante, user, onClose, onGuarda
           {paso < 7 ? (
             <button onClick={() => setPaso(p => Math.min(7, p + 1))} style={btnNext}>Siguiente</button>
           ) : (
-            // IMPORTANTE: type="button" EVITA EL REFRESH
             <button type="button" onClick={finalizarFicha} style={{ ...btnNext, backgroundColor: '#10b981' }}>
               {sesionAEditar ? '💾 Guardar y Descargar' : '💾 Guardar Ficha'}
             </button>

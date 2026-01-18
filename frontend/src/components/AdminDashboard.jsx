@@ -5,6 +5,7 @@ import api from '../api/axios';
 import { toast } from 'sonner'; 
 import { generarPDFConsolidado } from '../utils/generadorConsolidado';
 import Swal from 'sweetalert2'; 
+import { descargarPortafolioZip } from '../utils/generadorPortafolio';
 
 // URL BASE PARA DESCARGAS
 const BASE_URL = 'http://localhost:3001';
@@ -370,6 +371,15 @@ const AdminDashboard = () => {
                                 style={{...localStyles.actionBtn, backgroundColor:'#6366f1', minWidth:'35px'}} 
                             >
                                 📄
+                            </button>
+
+                            {/* NUEVO BOTÓN: DESCARGAR PORTAFOLIO ZIP */}
+                            <button 
+                                onClick={() => descargarPortafolioZip(rem.tutor_id)}
+                                title="Descargar Evidencias (ZIP)"
+                                style={{...localStyles.actionBtn, backgroundColor:'#059669', minWidth:'35px'}}
+                            >
+                                📦
                             </button>
 
                             {/* VER OBSERVACIÓN */}

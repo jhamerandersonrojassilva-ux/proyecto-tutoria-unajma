@@ -272,70 +272,119 @@ app.put('/sesiones-grupales/:id', upload.single('evidencia'), async (req, res) =
 });
 
 // 6. GUARDAR/ACTUALIZAR FICHA INTEGRAL (F01)
-app.post('/sesiones-tutoria/f01', async (req, res) => {
+// ==========================================
+// 6. GUARDAR/ACTUALIZAR FICHA INTEGRAL (F01)
+// ==========================================
+// ==========================================
+// 6. GUARDAR/ACTUALIZAR FICHA INTEGRAL (F01) - BLINDADO
+// ==========================================
+// ==========================================
+// 6. GUARDAR/ACTUALIZAR FICHA INTEGRAL (F01) - CORREGIDO (SCHEMA FIX)
+// ==========================================
+app.post('/sesiones-tutoria/f01', verifyToken, async (req, res) => {
     console.log("\n--- BACKEND: RECIBIENDO PETICIÓN F01 ---");
     const d = req.body;
+
+    // 1. Validación de Entrada
+    const estudianteId = parseInt(d.estudiante_id);
+    const tutorId = parseInt(d.tutor_id);
+
+    console.log(`🔍 Validando IDs -> Estudiante: ${estudianteId}, Tutor: ${tutorId}`);
+
+    if (isNaN(estudianteId) || isNaN(tutorId)) {
+        console.error("❌ IDs inválidos recibidos.");
+        return res.status(400).json({ error: "IDs de estudiante o tutor inválidos (NaN)." });
+    }
+
     try {
+        // 2. Verificación de Existencia (EVITA EL ERROR P2003)
+        const existeEstudiante = await prisma.estudiantes.findUnique({ where: { id: estudianteId } });
+        if (!existeEstudiante) {
+            return res.status(404).json({ error: `El estudiante con ID ${estudianteId} no existe.` });
+        }
+
+        const existeTutor = await prisma.tutores.findUnique({ where: { id: tutorId } });
+        if (!existeTutor) {
+            // Recuperación automática por usuario_id si es necesario
+            const tutorPorUsuario = await prisma.tutores.findFirst({ where: { usuario_id: tutorId } });
+            if (tutorPorUsuario) {
+                d.tutor_id = tutorPorUsuario.id; 
+            } else {
+                return res.status(404).json({ error: `El tutor con ID ${tutorId} no existe.` });
+            }
+        }
+
+        const tutorIdFinal = parseInt(d.tutor_id);
+
+        // 3. Ejecución Segura
         const resultado = await prisma.$transaction(async (tx) => {
-            const estudianteId = parseInt(d.estudiante_id);
+            // Preparar JSON
+            let datosParaJSON = { ...d };
+            if (typeof d.desarrollo_entrevista === 'string') {
+                try {
+                    const previo = JSON.parse(d.desarrollo_entrevista);
+                    datosParaJSON = { ...previo, ...datosParaJSON };
+                } catch (e) {}
+            }
+
+            // A. Actualizar Estudiante (USANDO LOS NOMBRES CORRECTOS DEL SCHEMA)
+            await tx.estudiantes.update({
+                where: { id: estudianteId },
+                data: {
+                    telefono: d.telefono || d.celular || undefined,
+                    
+                    // --- CORRECCIÓN AQUÍ ---
+                    // Tu base de datos pide 'direccion_actual', no 'direccion'
+                    direccion_actual: d.direccion_actual || d.direccion || undefined, 
+                    
+                    correo_institucional: d.correo_institucional || d.email || undefined,
+                    
+                    // Según tu log de error, 'ciclo_actual' SÍ existe, así que lo actualizamos también
+                    ciclo_actual: d.ciclo_actual || undefined 
+                }
+            });
+
+            // B. Buscar sesión existente
             const f01Existente = await tx.sesiones_tutoria.findFirst({
                 where: { estudiante_id: estudianteId, tipo_formato: 'F01' }
             });
 
-            const dataF01 = {
-                tutor_id: parseInt(d.tutor_id),
+            // C. Datos de la sesión
+            const dataSesion = {
+                tutor_id: tutorIdFinal,
                 estudiante_id: estudianteId,
                 tipo_formato: 'F01',
-                fecha: new Date(),
                 motivo_consulta: 'Ficha Integral',
-                // Mapeo de campos...
-                lugar_nacimiento: d.lugar_nacimiento,
-                estado_civil: d.estado_civil,
-                año_ingreso: d.año_ingreso,
-                ciclo_actual: d.ciclo_actual,
-                tel_emergencia: d.tel_emergencia,
-                referencia_emergencia: d.referencia_emergencia,
-                salud_enfermedad: d.salud_enfermedad,
-                salud_enfermedad_cual: d.salud_enfermedad_cual,
-                salud_cirugia: d.salud_cirugia,
-                salud_cirugia_cual: d.salud_cirugia_cual,
-                salud_medicamentos: d.salud_medicamentos,
-                salud_medicamentos_cuales: d.salud_medicamentos_cuales,
-                trabaja_actualmente: d.trabaja_actualmente,
-                lugar_trabajo: d.lugar_trabajo,
-                cargo_trabajo: d.cargo_trabajo,
-                horario_trabajo: d.horario_trabajo,
-                firma_tutor_url: d.firma_tutor_url,
-                firma_estudiante_url: d.firma_estudiante_url,
-                desarrollo_entrevista: d.desarrollo_entrevista,
-                familiares: d.familiares || []
+                fecha: new Date(),
+                firma_tutor_url: d.firma_tutor_url || null,
+                firma_estudiante_url: d.firma_estudiante_url || null,
+                desarrollo_entrevista: JSON.stringify(datosParaJSON)
             };
 
             let sesionFinal;
             if (f01Existente) {
-                sesionFinal = await tx.sesiones_tutoria.update({ where: { id: f01Existente.id }, data: dataF01 });
+                sesionFinal = await tx.sesiones_tutoria.update({
+                    where: { id: f01Existente.id },
+                    data: dataSesion
+                });
             } else {
-                sesionFinal = await tx.sesiones_tutoria.create({ data: dataF01 });
+                sesionFinal = await tx.sesiones_tutoria.create({
+                    data: dataSesion
+                });
             }
 
-            // Sincronizar datos personales
-            await tx.estudiantes.update({
-                where: { id: estudianteId },
-                data: {
-                    telefono: d.telefono,
-                    direccion_actual: d.direccion_actual,
-                    ciclo_actual: d.ciclo_actual,
-                    correo_institucional: d.correo_institucional,
-                    fecha_nacimiento: d.fecha_nacimiento ? new Date(d.fecha_nacimiento) : undefined
-                }
-            });
             return sesionFinal;
         });
 
+        console.log("✅ Ficha F01 guardada con éxito. ID Sesión:", resultado.id);
         res.json({ success: true, data: resultado });
+
     } catch (error) {
-        console.error("❌ ERROR BACKEND F01:", error);
-        res.status(500).json({ error: "Fallo en persistencia integral." });
+        console.error("❌ ERROR CRÍTICO F01:", error);
+        res.status(500).json({ 
+            error: "Error interno del servidor", 
+            detalle: error.message
+        });
     }
 });
 
@@ -1185,7 +1234,50 @@ app.get('/admin/informes', async (req, res) => {
 // INICIAR SERVIDOR
 
 
+// ==========================================
+// 8. DATA COMPLETA PARA PORTAFOLIO (ZIP)
+// ==========================================
+app.get('/admin/tutor/:id/portafolio', verifyToken, async (req, res) => {
+    try {
+        const tutorId = parseInt(req.params.id);
 
+        // 1. Obtener datos del tutor
+        const tutor = await prisma.tutores.findUnique({
+            where: { id: tutorId },
+            select: { nombres_apellidos: true, codigo_docente: true }
+        });
+
+        if (!tutor) return res.status(404).json({ error: "Tutor no encontrado" });
+
+        // 2. Obtener alumnos asignados Y sus sesiones (Nested Include)
+        const asignaciones = await prisma.asignaciones.findMany({
+            where: { tutor_id: tutorId },
+            include: {
+                estudiante_rel: {
+                    include: {
+                        // Incluimos las sesiones de este estudiante CON este tutor
+                        sesiones_tutoria: {
+                            where: { tutor_id: tutorId },
+                            orderBy: { fecha: 'asc' }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Limpiamos la estructura para el frontend
+        const estudiantes = asignaciones.map(a => a.estudiante_rel);
+
+        res.json({
+            tutor,
+            estudiantes
+        });
+
+    } catch (error) {
+        console.error("Error obteniendo data portafolio:", error);
+        res.status(500).json({ error: "Error al recopilar datos" });
+    }
+});
 
 
 app.listen(PORT, () => {

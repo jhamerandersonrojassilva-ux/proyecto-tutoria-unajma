@@ -19,7 +19,8 @@ const cargarImagen = (url) => {
     };
   });
 };
-export const generarF02 = async (sesion, asistentes = []) => {
+export const generarF02 = (dataSesion, retornarDoc = false) => {
+  
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
@@ -211,5 +212,10 @@ export const generarF02 = async (sesion, asistentes = []) => {
   // Guardar Archivo
   // Reemplazamos barras en la fecha para que sea un nombre de archivo válido
   const nombreFecha = (typeof fechaFmt === 'string') ? fechaFmt.replace(/\//g, '-') : 'fecha';
-  doc.save(`F02_Tutoria_Grupal_${nombreFecha}.pdf`);
+
+  if (retornarDoc) {
+      return doc;
+  } else {
+      doc.save(`F02_GRUPAL_${dataSesion.fecha}.pdf`);
+  }
 };
