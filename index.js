@@ -105,7 +105,7 @@ app.get('/estudiantes', verifyToken, async (req, res) => {
         const estudiantesRaw = await prisma.estudiantes.findMany({
             where: { tutor_asignado_id: tutor.id },
             include: {
-                sesiones_tutoria: true, 
+                sesiones_tutoria: true,
                 derivaciones: true,
                 asistencia_grupal: { include: { sesion_grupal: true } }
             },
@@ -219,7 +219,7 @@ app.post('/sesiones-tutoria/f01', verifyToken, async (req, res) => {
         const resultado = await prisma.$transaction(async (tx) => {
             let datosJSON = { ...d };
             if (typeof d.desarrollo_entrevista === 'string') {
-                try { datosJSON = { ...JSON.parse(d.desarrollo_entrevista), ...datosJSON }; } catch (e) {}
+                try { datosJSON = { ...JSON.parse(d.desarrollo_entrevista), ...datosJSON }; } catch (e) { }
             }
 
             await tx.estudiantes.update({
@@ -228,7 +228,7 @@ app.post('/sesiones-tutoria/f01', verifyToken, async (req, res) => {
                     telefono: d.telefono || d.celular || undefined,
                     direccion_actual: d.direccion_actual || d.direccion || undefined,
                     correo_institucional: d.correo_institucional || d.email || undefined,
-                    ciclo_actual: d.ciclo_actual || undefined 
+                    ciclo_actual: d.ciclo_actual || undefined
                 }
             });
 
@@ -239,7 +239,7 @@ app.post('/sesiones-tutoria/f01', verifyToken, async (req, res) => {
                 desarrollo_entrevista: JSON.stringify(datosJSON)
             };
 
-            return existente 
+            return existente
                 ? await tx.sesiones_tutoria.update({ where: { id: existente.id }, data: dataSesion })
                 : await tx.sesiones_tutoria.create({ data: dataSesion });
         });
@@ -251,24 +251,60 @@ app.post('/sesiones-tutoria/f01', verifyToken, async (req, res) => {
 });
 
 // 7. GUARDAR/ACTUALIZAR FICHA DE ENTREVISTA (F03)
+// 7. GUARDAR/ACTUALIZAR FICHA DE ENTREVISTA (F03)
+// 7. GUARDAR/ACTUALIZAR FICHA DE ENTREVISTA (F03)
 app.post('/sesiones-tutoria/f03', async (req, res) => {
-    const { id, ...data } = req.body;
+    // 1. Descartamos 'edad' y extraemos IDs
+    const { id, estudiante_id, tutor_id, edad, ...data } = req.body;
+    
     try {
-        const payload = {
-            ...data, fecha: new Date(), tipo_formato: 'F03',
-            estudiante_id: parseInt(data.estudiante_id), tutor_id: parseInt(data.tutor_id)
+        const datosBase = {
+            ...data,
+            tipo_formato: 'F03',
+            fecha: new Date()
         };
-        const resultado = id 
-            ? await prisma.sesiones_tutoria.update({ where: { id: parseInt(id) }, data: payload })
-            : await prisma.sesiones_tutoria.create({ data: payload });
-        res.json({ message: "Guardado", data: resultado });
-    } catch (error) { res.status(500).json({ error: "Error F03" }); }
+
+        let resultado;
+        if (id) {
+            // ACTUALIZAR
+            resultado = await prisma.sesiones_tutoria.update({
+                where: { id: parseInt(id) },
+                data: datosBase
+            });
+        } else {
+            // CREAR (Usando connect)
+            resultado = await prisma.sesiones_tutoria.create({
+                data: {
+                    ...datosBase,
+                    estudiante_rel: { connect: { id: parseInt(estudiante_id) } },
+                    tutor_rel: { connect: { id: parseInt(tutor_id) } }
+                }
+            });
+        }
+        res.json({ message: "Entrevista guardada", data: resultado });
+    } catch (error) {
+        console.error("❌ Error F03 Backend:", error);
+        res.status(500).json({ error: "Error interno F03", detalle: error.message });
+    }
 });
 
 // 8. GUARDAR/ACTUALIZAR FICHA DE SEGUIMIENTO (F04)
 // 8. GUARDAR/ACTUALIZAR FICHA DE SEGUIMIENTO (F04)
+// 8. GUARDAR/ACTUALIZAR FICHA DE SEGUIMIENTO (F04)
+// 8. GUARDAR/ACTUALIZAR FICHA DE SEGUIMIENTO (F04)
+// 8. GUARDAR/ACTUALIZAR FICHA DE SEGUIMIENTO (F04)
 app.post('/sesiones-tutoria/f04', async (req, res) => {
-    const { id, fecha, desarrollo_entrevista, ...data } = req.body;
+    // 1. Extraemos campos conflictivos o de relación para manejarlos por separado
+    const { 
+        id, 
+        fecha, 
+        desarrollo_entrevista, 
+        estudiante_id, 
+        tutor_id, 
+        edad, // Se extrae para descartar, Prisma no lo tiene en sesiones_tutoria
+        ...data 
+    } = req.body;
+    
     try {
         // Aseguramos que desarrollo_entrevista sea un string válido
         let entrevistaJSON = "{}";
@@ -278,26 +314,44 @@ app.post('/sesiones-tutoria/f04', async (req, res) => {
                 : desarrollo_entrevista;
         }
 
-        const payload = {
+        // 2. Preparamos los datos base (sin campos de relación directa ni edad)
+        const datosBase = {
             ...data, 
             fecha: fecha ? new Date(fecha) : new Date(), 
             tipo_formato: 'F04',
-            estudiante_id: parseInt(data.estudiante_id), 
-            tutor_id: parseInt(data.tutor_id),
-            desarrollo_entrevista: entrevistaJSON // Aquí guardamos el JSON stringificado
+            desarrollo_entrevista: entrevistaJSON
         };
 
-        const resultado = id 
-            ? await prisma.sesiones_tutoria.update({ where: { id: parseInt(id) }, data: payload })
-            : await prisma.sesiones_tutoria.create({ data: payload });
+        let resultado;
+
+        if (id) {
+            // --- MODO ACTUALIZACIÓN ---
+            resultado = await prisma.sesiones_tutoria.update({ 
+                where: { id: parseInt(id) }, 
+                data: datosBase 
+            });
+        } else {
+            // --- MODO CREACIÓN ---
+            // Nota: Usamos estudiante_rel y tutor_rel para conectar relaciones según tu esquema
+            resultado = await prisma.sesiones_tutoria.create({ 
+                data: {
+                    ...datosBase,
+                    estudiante_rel: { connect: { id: parseInt(estudiante_id) } },
+                    tutor_rel: { connect: { id: parseInt(tutor_id) } }
+                } 
+            });
+        }
             
-        res.json({ message: "Guardado", data: resultado });
+        res.json({ message: "Guardado correctamente", data: resultado });
+
     } catch (error) { 
-        console.error("❌ Error F04 Backend:", error); // Esto mostrará el error real en la terminal
-        res.status(500).json({ error: "Error interno F04", detalle: error.message }); 
+        console.error("❌ Error F04 Backend:", error); 
+        res.status(500).json({ 
+            error: "Error interno F04", 
+            detalle: error.message 
+        }); 
     }
 });
-
 // 9. CREAR DERIVACIÓN (F05)
 app.post('/derivaciones', async (req, res) => {
     try {
@@ -336,15 +390,15 @@ app.put('/derivaciones/:id', async (req, res) => {
 
 // 11. ELIMINAR SESIONES/REGISTROS
 app.delete('/sesiones/:id', async (req, res) => {
-    try { await prisma.sesiones_tutoria.delete({ where: { id: parseInt(req.params.id) } }); res.json({ msg: "OK" }); } 
+    try { await prisma.sesiones_tutoria.delete({ where: { id: parseInt(req.params.id) } }); res.json({ msg: "OK" }); }
     catch (e) { res.status(500).json({ error: "Error al eliminar" }); }
 });
 app.delete('/sesiones-grupales/:id', async (req, res) => {
-    try { await prisma.sesiones_grupales.delete({ where: { id: parseInt(req.params.id) } }); res.json({ msg: "OK" }); } 
+    try { await prisma.sesiones_grupales.delete({ where: { id: parseInt(req.params.id) } }); res.json({ msg: "OK" }); }
     catch (e) { res.status(500).json({ error: "Error al eliminar" }); }
 });
 app.delete('/derivaciones/:id', async (req, res) => {
-    try { await prisma.derivaciones.delete({ where: { id: parseInt(req.params.id) } }); res.json({ msg: "OK" }); } 
+    try { await prisma.derivaciones.delete({ where: { id: parseInt(req.params.id) } }); res.json({ msg: "OK" }); }
     catch (e) { res.status(500).json({ error: "Error al eliminar" }); }
 });
 
@@ -355,7 +409,7 @@ app.delete('/derivaciones/:id', async (req, res) => {
 // 14. GESTIÓN DE CICLOS
 app.get('/admin/ciclos', async (req, res) => res.json(await prisma.ciclos.findMany({ orderBy: { id: 'desc' } })));
 app.post('/admin/ciclos', async (req, res) => {
-    try { res.status(201).json(await prisma.ciclos.create({ data: { nombre_ciclo: req.body.nombre_ciclo, activo: true } })); } 
+    try { res.status(201).json(await prisma.ciclos.create({ data: { nombre_ciclo: req.body.nombre_ciclo, activo: true } })); }
     catch (e) { res.status(500).json({ error: "Error crear ciclo" }); }
 });
 app.patch('/admin/ciclos/:id/activar', async (req, res) => {
@@ -370,7 +424,7 @@ app.put('/admin/ciclos/:id', async (req, res) => {
 });
 app.delete('/admin/ciclos/:id', async (req, res) => {
     const count = await prisma.asignaciones.count({ where: { ciclo_id: parseInt(req.params.id) } });
-    if(count > 0) return res.status(400).json({ error: "Tiene alumnos" });
+    if (count > 0) return res.status(400).json({ error: "Tiene alumnos" });
     await prisma.ciclos.delete({ where: { id: parseInt(req.params.id) } });
     res.json({ msg: "Eliminado" });
 });
@@ -398,7 +452,7 @@ app.delete('/admin/tutores/:id', async (req, res) => {
     if (count > 0) return res.status(400).json({ error: "Tiene estudiantes" });
     const tut = await prisma.tutores.findUnique({ where: { id } });
     await prisma.tutores.delete({ where: { id } });
-    if(tut?.usuario_id) await prisma.usuarios.delete({ where: { id: tut.usuario_id } });
+    if (tut?.usuario_id) await prisma.usuarios.delete({ where: { id: tut.usuario_id } });
     res.json({ msg: "Eliminado" });
 });
 
@@ -418,7 +472,7 @@ app.post('/admin/carga-masiva-estudiantes', async (req, res) => {
                     create: { nombres_apellidos: est.nombres_apellidos, dni: est.dni.toString(), codigo_estudiante: est.codigo.toString(), tutor_asignado_id: parseInt(tutor_id) }
                 });
                 const existe = await tx.asignaciones.findFirst({ where: { estudiante_id: alumno.id, ciclo_id: parseInt(ciclo_id) } });
-                if(existe) await tx.asignaciones.update({ where: { id: existe.id }, data: { tutor_id: parseInt(tutor_id) } });
+                if (existe) await tx.asignaciones.update({ where: { id: existe.id }, data: { tutor_id: parseInt(tutor_id) } });
                 else await tx.asignaciones.create({ data: { estudiante_id: alumno.id, tutor_id: parseInt(tutor_id), ciclo_id: parseInt(ciclo_id) } });
                 procesados.push(alumno);
             }
@@ -440,7 +494,7 @@ app.put('/admin/estudiantes/:id', async (req, res) => {
     await prisma.$transaction(async (tx) => {
         await tx.estudiantes.update({ where: { id: parseInt(id) }, data: { nombres_apellidos: nombres, dni, codigo_estudiante: codigo, telefono, tutor_asignado_id: parseInt(tutor_id) } });
         const asig = await tx.asignaciones.findFirst({ where: { estudiante_id: parseInt(id), ciclo_id: parseInt(ciclo_id) } });
-        if(asig) await tx.asignaciones.update({ where: { id: asig.id }, data: { tutor_id: parseInt(tutor_id) } });
+        if (asig) await tx.asignaciones.update({ where: { id: asig.id }, data: { tutor_id: parseInt(tutor_id) } });
         else await tx.asignaciones.create({ data: { estudiante_id: parseInt(id), tutor_id: parseInt(tutor_id), ciclo_id: parseInt(ciclo_id) } });
     });
     res.json({ msg: "OK" });
@@ -448,7 +502,12 @@ app.put('/admin/estudiantes/:id', async (req, res) => {
 
 // 19. NOTIFICACIONES
 app.get('/admin/notificaciones-asignacion', async (req, res) => {
-    const est = await prisma.estudiantes.findMany({ include: { tutor_asignado: true } });
+    const estudiantes = await prisma.estudiantes.findMany({
+  include: {
+    tutores: true, // <--- NOMBRE CORRECTO SEGÚN EL ERROR
+    sesiones_tutoria: true // Incluimos esto para que carguen las fichas
+  }
+});
     res.json(est.map(e => ({ id: e.id, estudiante: e.nombres_apellidos, telefono: e.telefono, tutor: e.tutor_asignado?.nombres_apellidos })));
 });
 app.patch('/admin/estudiantes/:id/telefono', async (req, res) => {
@@ -595,7 +654,7 @@ app.put('/sesiones/:id', upload.none(), async (req, res) => {
             data: {
                 motivo_consulta,
                 // Si desarrollo_entrevista es string JSON, lo guardamos tal cual
-                desarrollo_entrevista, 
+                desarrollo_entrevista,
                 acuerdos_compromisos,
                 observaciones,
                 resultado, // Para F03

@@ -18,7 +18,7 @@ import ModalFichaEntrevista from './components/ModalFichaEntrevista';
 
 // --- LIBRERÍA DE NOTIFICACIONES ---
 import { Toaster, toast } from 'sonner';
-import Swal from 'sweetalert2'; 
+import Swal from 'sweetalert2';
 
 // --- UTILIDADES Y GENERADORES ---
 import { generarF01 } from './utils/generadorF01';
@@ -51,7 +51,7 @@ function App() {
   const [estudianteSeleccionado, setEstudianteSeleccionado] = useState(null);
   const [historial, setHistorial] = useState([]);
   const [sesionAEditarEnModal, setSesionAEditarEnModal] = useState(null);
-  
+
   // NUEVO ESTADO: Controla si el botón de remitir aparece o no
   const [informeEnviado, setInformeEnviado] = useState(false);
 
@@ -103,27 +103,27 @@ function App() {
     if (user && user.token) {
       cargarEstudiantes();
       const esAdmin = (user.roles?.nombre_rol === 'ADMIN') || (user.rol_id === 1);
-      
+
       if (esAdmin && vistaActual !== 'admin') {
         setVistaActual('admin');
       } else if (!esAdmin) {
         // LÓGICA DE ACTUALIZACIÓN AUTOMÁTICA (POLLING)
         const tutorId = user.tutor_id || user.id;
-        
+
         // 1. Verificación inmediata al cargar
         verificarEstadoInforme(tutorId);
 
         // 2. Verificación periódica cada 3 segundos
         // Esto hace que si el admin devuelve el informe, el botón cambie solo.
         intervaloPolling = setInterval(() => {
-            verificarEstadoInforme(tutorId);
-        }, 3000); 
+          verificarEstadoInforme(tutorId);
+        }, 3000);
       }
     }
 
     // Limpieza: Detener el reloj cuando se cierre sesión o cambie el usuario
     return () => {
-        if (intervaloPolling) clearInterval(intervaloPolling);
+      if (intervaloPolling) clearInterval(intervaloPolling);
     };
   }, [user]);
 
@@ -131,12 +131,12 @@ function App() {
   const verificarEstadoInforme = async (tutorId) => {
     if (!tutorId) return;
     try {
-        const res = await api.get(`/tutores/${tutorId}/estado-informe`);
-        // IMPORTANTE: Actualizamos el estado directamente con lo que diga el servidor.
-        // Si el admin lo borró, res.data.enviado será false y el botón cambiará.
-        setInformeEnviado(!!res.data.enviado); 
+      const res = await api.get(`/tutores/${tutorId}/estado-informe`);
+      // IMPORTANTE: Actualizamos el estado directamente con lo que diga el servidor.
+      // Si el admin lo borró, res.data.enviado será false y el botón cambiará.
+      setInformeEnviado(!!res.data.enviado);
     } catch (error) {
-        console.error("No se pudo verificar estado informe", error);
+      console.error("No se pudo verificar estado informe", error);
     }
   };
   const convertirUrlABase64 = async (url) => {
@@ -164,7 +164,7 @@ function App() {
       const actualizados = res.data.map(est => {
         const derivacionesProcesadas = (est.derivaciones || []).map(d => ({
           ...d,
-          tipo_formato: 'F05', 
+          tipo_formato: 'F05',
           titulo_visual: `F05 - ${d.area_destino || 'General'}`,
           firma_tutor_url: d.firma_tutor_url || d.firma_tutor
         }));
@@ -174,7 +174,7 @@ function App() {
           return {
             ...asistencia.sesion_grupal,
             tipo_formato: 'F02',
-            titulo_visual: `F02 - ${asistencia.sesion_grupal.tema || 'Grupal'}`, 
+            titulo_visual: `F02 - ${asistencia.sesion_grupal.tema || 'Grupal'}`,
             key_unificada: `f02-${asistencia.id}`
           };
         }).filter(Boolean);
@@ -209,11 +209,11 @@ function App() {
       }
     } catch (err) {
       console.error("Error al cargar estudiantes:", err);
-      
+
       // --- MANEJO DE SESIÓN EXPIRADA ---
       if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-          toast.error("Tu sesión ha expirado. Por favor ingresa nuevamente.");
-          handleLogout(); 
+        toast.error("Tu sesión ha expirado. Por favor ingresa nuevamente.");
+        handleLogout();
       }
     }
   };
@@ -234,7 +234,7 @@ function App() {
         return {
           ...item,
           tipo_formato: etiqueta,
-          titulo_visual: visual, 
+          titulo_visual: visual,
           firma_tutor_url: item.firma_tutor_url || item.firma_tutor
         };
       });
@@ -254,7 +254,7 @@ function App() {
           return {
             id: sesion.id,
             tipo_formato: 'F02',
-            titulo_visual: `F02 - ${sesion.tema || 'Grupal'}`, 
+            titulo_visual: `F02 - ${sesion.tema || 'Grupal'}`,
             tema: sesion.tema,
             fecha: sesion.fecha,
             hora_inicio: sesion.hora_inicio,
@@ -365,8 +365,8 @@ function App() {
     const toastId = toast.loading("Eliminando y refrescando datos...");
 
     try {
-      let ruta = registro.tipo_formato === 'F02' ? `/sesiones-grupales/${registro.id}` : 
-               (registro.tipo_formato === 'F05' || registro.tipo_formato === 'Derivación' ? `/derivaciones/${registro.id}` : `/sesiones/${registro.id}`);
+      let ruta = registro.tipo_formato === 'F02' ? `/sesiones-grupales/${registro.id}` :
+        (registro.tipo_formato === 'F05' || registro.tipo_formato === 'Derivación' ? `/derivaciones/${registro.id}` : `/sesiones/${registro.id}`);
 
       const res = await api.delete(ruta);
 
@@ -382,9 +382,20 @@ function App() {
   };
   const manejarGuardarSesion = async (datos) => {
     try {
+      // 1. RECUPERAR USUARIO (TUTOR)
+      const userStr = localStorage.getItem('usuario') || localStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : {};
+      const tutorId = parseInt(user.tutor_id || user.id);
+
+      if (!tutorId) {
+        toast.error("No se identificó al tutor. Reinicie sesión.");
+        return;
+      }
+
       const esDerivacion = datos.tipo_formato === 'F05';
       const esEdicion = !!datos.id;
 
+      // 2. MANEJO DE FECHA
       let fechaFinalISO;
       try {
         const posibleFecha = datos.fecha_manual || datos.fecha_solicitud || datos.fecha;
@@ -397,81 +408,125 @@ function App() {
       let payload;
 
       if (esDerivacion) {
+        // --- LÓGICA PARA F05 (DERIVACIÓN) ---
         ruta = esEdicion ? `/derivaciones/${datos.id}` : '/derivaciones';
         metodo = esEdicion ? 'put' : 'post';
+
+        // === CORRECCIÓN SEMESTRE DESDE F01 ===
+        let semestreFinal = datos.semestre || estudianteSeleccionado.ciclo_actual;
+        
+        // Si no tenemos semestre, lo buscamos dentro de la Ficha F01 guardada
+        if (!semestreFinal) {
+            const fichaF01 = estudianteSeleccionado.sesiones?.find(s => s.tipo_formato === 'F01');
+            if (fichaF01?.desarrollo_entrevista) {
+                try {
+                    const f01Data = typeof fichaF01.desarrollo_entrevista === 'string'
+                        ? JSON.parse(fichaF01.desarrollo_entrevista)
+                        : fichaF01.desarrollo_entrevista;
+                    
+                    // Buscamos campos comunes de semestre/ciclo
+                    semestreFinal = f01Data.ciclo || f01Data.semestre || f01Data.ciclo_actual;
+                } catch (e) { console.warn("No se pudo leer semestre de F01", e); }
+            }
+        }
+        // Valor por defecto si falla todo
+        if (!semestreFinal) semestreFinal = "No registrado";
+
         payload = {
           estudiante_id: parseInt(estudianteSeleccionado.id),
-          tutor_id: parseInt(user.tutor_id || user.id),
-          motivo_derivacion: datos.motivo_derivacion || datos.motivo_consulta || datos.motivo || "Sin motivo",
-          nombre_tutor_deriva: datos.nombre_tutor_deriva || datos.nombre_tutor || user.nombre,
+          tutor_id: tutorId,
+          motivo_derivacion: datos.motivo_derivacion || datos.motivo_consulta || "Sin motivo",
+          nombre_tutor_deriva: datos.nombre_tutor_deriva || user.nombre || user.nombres_apellidos,
           fecha_solicitud: fechaFinalISO,
           area_destino: datos.area_destino || "No especificado",
           firma_tutor_url: datos.firma_tutor_url,
           escuela_profesional: datos.escuela_profesional || estudianteSeleccionado.escuela_profesional,
-          semestre: datos.semestre || "No registrado",
+          semestre: semestreFinal, // <--- SEMESTRE RECUPERADO DE F01
           celular: datos.celular,
           edad: parseInt(datos.edad || 0),
           fecha_nacimiento: datos.fecha_nacimiento,
           tipo_formato: 'F05'
         };
+
       } else {
-        ruta = '/sesiones-tutoria/f04';
+        // --- LÓGICA PARA F04 Y F03 ---
+        ruta = datos.tipo_formato === 'F03' ? '/sesiones-tutoria/f03' : '/sesiones-tutoria/f04';
         metodo = 'post';
+
+        let desarrolloString = datos.desarrollo_entrevista;
+        if (desarrolloString && typeof desarrolloString === 'object') {
+            desarrolloString = JSON.stringify(desarrolloString);
+        }
+
         payload = {
           ...datos,
-          tipo_formato: 'F04',
+          id: datos.id ? parseInt(datos.id) : undefined,
+          tipo_formato: datos.tipo_formato || 'F04',
           fecha: fechaFinalISO,
-          tutor_id: parseInt(user.tutor_id || user.id),
+          tutor_id: tutorId,
           estudiante_id: parseInt(estudianteSeleccionado.id),
           edad: parseInt(datos.edad || 0),
-          id: datos.id
+          desarrollo_entrevista: desarrolloString
         };
       }
 
+      // 3. ENVIAR AL BACKEND
       const res = await api[metodo](ruta, payload);
 
       if (res.status === 200 || res.status === 201) {
+        
+        // 4. GENERAR PDF
         if (!esDerivacion) {
           const numSeguimiento = (estudianteSeleccionado.sesiones?.filter(s => s.tipo_formato === 'F04').length || 0) + (esEdicion ? 0 : 1);
-          generarF04(payload, estudianteSeleccionado, numSeguimiento);
+          try {
+             if (datos.tipo_formato === 'F04' && typeof generarF04 === 'function') {
+                 generarF04(payload, estudianteSeleccionado, false, String(numSeguimiento)); 
+             } else if (datos.tipo_formato === 'F03' && typeof generarF03 === 'function') {
+                 generarF03(payload, estudianteSeleccionado);
+             }
+          } catch(e) { console.error("Error PDF", e); }
         } else {
-          generarF05(payload, estudianteSeleccionado);
+          if (typeof generarF05 === 'function') generarF05(payload, estudianteSeleccionado);
         }
+
         toast.success(`${esDerivacion ? 'Derivación' : 'Sesión'} guardada correctamente`);
+        
         await cargarEstudiantes();
         setMostrarModalRegistro(false);
         setMostrarModalDerivacion(false);
         setSesionAEditarEnModal(null);
       }
+
     } catch (err) {
       console.error("Error al guardar:", err);
-      toast.error(`Error del servidor: ${err.response?.data?.error || err.message}`);
+      const msg = err.response?.data?.detalle || err.response?.data?.error || err.message;
+      toast.error(`Error: ${msg}`);
     }
   };
 
   const manejarGuardarF01 = async (datosFicha) => {
     const toastId = toast.loading("Sincronizando Ficha Integral...");
     try {
-        const payload = {
-            ...datosFicha,
-            estudiante_id: estudianteSeleccionado.id,
-            tutor_id: user.tutor_id || user.id,
-            tipo_formato: 'F01',
-            firma_tutor_url: datosFicha.firma_tutor_url,
-            firma_estudiante_url: datosFicha.firma_estudiante_url
-        };
+      const payload = {
+        ...datosFicha,
+        estudiante_id: estudianteSeleccionado.id,
+        tutor_id: user.tutor_id || user.id,
+        tipo_formato: 'F01',
+        firma_tutor_url: datosFicha.firma_tutor_url,
+        firma_estudiante_url: datosFicha.firma_estudiante_url
+      };
 
-        const res = await api.post('/sesiones-tutoria/f01', payload);
+      const res = await api.post('/sesiones-tutoria/f01', payload);
 
-        if (res.data.success) {
-            const dataFinal = res.data.data;
-            await cargarEstudiantes();
-            setMostrarModalF01(false);
-            toast.success("Ficha y Firmas guardadas", { id: toastId });
-            generarF01(dataFinal, { ...estudianteSeleccionado, ...datosFicha });
-        }
+      if (res.data.success) {
+        const dataFinal = res.data.data;
+        await cargarEstudiantes();
+        setMostrarModalF01(false);
+        toast.success("Ficha y Firmas guardadas", { id: toastId });
+        generarF01(dataFinal, { ...estudianteSeleccionado, ...datosFicha });
+      }
     } catch (error) {
-        toast.error("Error al guardar");
+      toast.error("Error al guardar");
     }
   };
 
@@ -543,7 +598,7 @@ function App() {
       formData.append('total_riesgo', enRiesgo);
       formData.append('avance', avance);
       formData.append('observaciones', formValues.observaciones || "Sin comentarios.");
-      
+
       if (formValues.archivo) {
         formData.append('informe_adjunto', formValues.archivo);
       }
@@ -551,7 +606,7 @@ function App() {
       const res = await api.post('/tutores/remitir-ciclo', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      
+
       if (res.status === 200 || res.status === 201) {
         setInformeEnviado(true);
         toast.dismiss(toastId);
@@ -622,45 +677,45 @@ function App() {
                 {!esAdmin && (
                   <>
                     {informeEnviado ? (
-                        <div 
-                            onClick={() => {
-                                Swal.fire({
-                                    title: '✅ Informe Enviado',
-                                    text: 'Ya has remitido tu informe semestral. Está pendiente de revisión por el Administrador.',
-                                    icon: 'info',
-                                    confirmButtonColor: '#10b981'
-                                });
-                            }}
-                            style={{
-                                ...styles.navItem,
-                                marginTop: '30px',
-                                backgroundColor: '#10b981', 
-                                color: 'white',
-                                fontWeight: 'bold',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                opacity: 1,
-                                boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)'
-                            }}
-                        >
-                            <span style={{ marginRight: '12px' }}>✅</span> Informe Enviado
-                        </div>
+                      <div
+                        onClick={() => {
+                          Swal.fire({
+                            title: '✅ Informe Enviado',
+                            text: 'Ya has remitido tu informe semestral. Está pendiente de revisión por el Administrador.',
+                            icon: 'info',
+                            confirmButtonColor: '#10b981'
+                          });
+                        }}
+                        style={{
+                          ...styles.navItem,
+                          marginTop: '30px',
+                          backgroundColor: '#10b981',
+                          color: 'white',
+                          fontWeight: 'bold',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          opacity: 1,
+                          boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)'
+                        }}
+                      >
+                        <span style={{ marginRight: '12px' }}>✅</span> Informe Enviado
+                      </div>
                     ) : (
-                        <div
-                            onClick={handleRemitirInforme}
-                            style={{
-                                ...styles.navItem,
-                                marginTop: '30px',
-                                backgroundColor: '#f59e0b', 
-                                color: 'white',
-                                fontWeight: 'bold',
-                                justifyContent: 'center',
-                                boxShadow: '0 4px 6px rgba(245, 158, 11, 0.2)',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            <span style={{ marginRight: '12px' }}>📤</span> Remitir Informe
-                        </div>
+                      <div
+                        onClick={handleRemitirInforme}
+                        style={{
+                          ...styles.navItem,
+                          marginTop: '30px',
+                          backgroundColor: '#f59e0b',
+                          color: 'white',
+                          fontWeight: 'bold',
+                          justifyContent: 'center',
+                          boxShadow: '0 4px 6px rgba(245, 158, 11, 0.2)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <span style={{ marginRight: '12px' }}>📤</span> Remitir Informe
+                      </div>
                     )}
                   </>
                 )}

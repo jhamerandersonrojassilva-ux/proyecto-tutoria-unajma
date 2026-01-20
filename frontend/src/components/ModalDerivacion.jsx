@@ -3,17 +3,16 @@ import SignaturePad from 'react-signature-pad-wrapper';
 
 export default function ModalDerivacion({ estudiante, onGuardar, onClose, user, sesionAEditar }) { 
   
-  // --- FUNCIÓN AUXILIAR FECHA (CORREGIDA PARA NO RESTAR DÍAS) ---
+  // --- FUNCIÓN AUXILIAR FECHA ---
   const formatearFechaParaInput = (fechaISO) => {
     if (!fechaISO) return '';
-    // Tomamos la parte de la fecha antes de la 'T' para evitar problemas de zona horaria
     if (fechaISO.includes('T')) {
         return fechaISO.split('T')[0];
     }
-    return fechaISO; // Si ya viene como YYYY-MM-DD
+    return fechaISO; 
   };
 
-  // --- FUNCIÓN HELPER PARA FECHA LOCAL (ACTUAL) ---
+  // --- FUNCIÓN HELPER PARA FECHA LOCAL ---
   const obtenerFechaLocal = () => {
     const ahora = new Date();
     const fechaLocal = new Date(ahora.getTime() - (ahora.getTimezoneOffset() * 60000));
@@ -46,19 +45,21 @@ export default function ModalDerivacion({ estudiante, onGuardar, onClose, user, 
   useEffect(() => {
     if (!estudiante) return;
 
-    // A. Cargar datos base del estudiante (SIEMPRE)
+    // A. Cargar datos base del estudiante (Perfil)
+    // Buscamos en todas las propiedades posibles para asegurar que no falle
     setCelular(estudiante.telefono || estudiante.celular || '');
     setEscuela(estudiante.escuela_profesional || 'Ingeniería de Sistemas');
     setDni(estudiante.dni || '');
     setEdad(estudiante.edad || '');
     
-    // CORRECCIÓN: Carga robusta de SEMESTRE y FECHA NACIMIENTO
-    setSemestre(estudiante.ciclo_actual || estudiante.semestre || estudiante.ciclo || '');
-    setFechaNacimiento(formatearFechaParaInput(estudiante.fecha_nacimiento));
+    // --- CORRECCIÓN CRÍTICA DE SEMESTRE ---
+    // 1. Buscamos en el objeto raíz del estudiante
+    let sem = estudiante.ciclo_actual || estudiante.semestre || estudiante.ciclo || '';
+    let fecNac = formatearFechaParaInput(estudiante.fecha_nacimiento);
 
-    // B. Si es NUEVO registro
+    // B. Si es NUEVO registro -> Intentar completar desde Ficha Integral (F01)
     if (!sesionAEditar) {
-        // Cargar nombre del tutor
+        // Cargar nombre del tutor desde sesión
         if (user?.nombre) {
             setNombreTutor(user.nombre);
         } else {
@@ -71,21 +72,32 @@ export default function ModalDerivacion({ estudiante, onGuardar, onClose, user, 
             }
         }
         
-        // Intentar autocompletar desde la Ficha Integral (F01) si existe
+        // --- BÚSQUEDA PROFUNDA EN F01 ---
         const fichaF01 = estudiante.sesiones?.find(s => s.tipo_formato === 'F01');
+        
         if (fichaF01 && fichaF01.desarrollo_entrevista) {
             try {
               const datosF01 = typeof fichaF01.desarrollo_entrevista === 'string' 
                 ? JSON.parse(fichaF01.desarrollo_entrevista) 
                 : fichaF01.desarrollo_entrevista;
 
-              if (datosF01.fecha_nacimiento) setFechaNacimiento(formatearFechaParaInput(datosF01.fecha_nacimiento));
-              if (datosF01.edad) setEdad(datosF01.edad);
-              if (datosF01.celular) setCelular(datosF01.celular);
+              // Autocompletar si está vacío
+              if (!fecNac && datosF01.fecha_nacimiento) fecNac = formatearFechaParaInput(datosF01.fecha_nacimiento);
+              if (!edad && datosF01.edad) setEdad(datosF01.edad);
+              if (!celular && (datosF01.celular || datosF01.telefono)) setCelular(datosF01.celular || datosF01.telefono);
+              
+              // AQUÍ ESTABA EL ERROR: Faltaba buscar 'ciclo_actual' dentro del JSON
+              if (!sem) {
+                  sem = datosF01.ciclo_actual || datosF01.ciclo || datosF01.semestre || '';
+              }
+
             } catch (e) { console.error("Error leyendo F01", e); }
         }
+        
+        setSemestre(sem);
+        setFechaNacimiento(fecNac);
     }
-  }, [estudiante, user, sesionAEditar]); // Dependencias corregidas
+  }, [estudiante, user, sesionAEditar]); 
 
   // --- 2. EFECTO DE EDICIÓN (SOBRESCRIBIR SI EDITAMOS) ---
   useEffect(() => {
@@ -102,13 +114,8 @@ export default function ModalDerivacion({ estudiante, onGuardar, onClose, user, 
         const fechaRaw = sesionAEditar.fecha_manual || sesionAEditar.fecha || sesionAEditar.fecha_solicitud;
         if (fechaRaw) {
             const fechaGuardada = new Date(fechaRaw);
-            // Ajuste manual simple para input datetime-local
-            const year = fechaGuardada.getFullYear();
-            const month = String(fechaGuardada.getMonth() + 1).padStart(2, '0');
-            const day = String(fechaGuardada.getDate()).padStart(2, '0');
-            const hours = String(fechaGuardada.getHours()).padStart(2, '0');
-            const minutes = String(fechaGuardada.getMinutes()).padStart(2, '0');
-            setFechaManual(`${year}-${month}-${day}T${hours}:${minutes}`);
+            const fechaAjustada = new Date(fechaGuardada.getTime() - (fechaGuardada.getTimezoneOffset() * 60000));
+            setFechaManual(fechaAjustada.toISOString().slice(0, 16));
         }
         
         // D. OFICINAS
@@ -119,18 +126,18 @@ export default function ModalDerivacion({ estudiante, onGuardar, onClose, user, 
             setOficinasSeleccionadas([]); 
         }
 
-        // E. DATOS GUARDADOS ESPECÍFICOS DE ESTA FICHA (SOBRESCRIBEN AL ESTUDIANTE)
+        // E. DATOS GUARDADOS ESPECÍFICOS DE ESTA FICHA
         if (sesionAEditar.celular) setCelular(sesionAEditar.celular);
         if (sesionAEditar.edad) setEdad(sesionAEditar.edad);
-        if (sesionAEditar.semestre) setSemestre(sesionAEditar.semestre); // RECUPERAR SEMESTRE
-        if (sesionAEditar.fecha_nacimiento) setFechaNacimiento(formatearFechaParaInput(sesionAEditar.fecha_nacimiento)); // RECUPERAR FECHA NAC
+        if (sesionAEditar.semestre) setSemestre(sesionAEditar.semestre); 
+        if (sesionAEditar.fecha_nacimiento) setFechaNacimiento(formatearFechaParaInput(sesionAEditar.fecha_nacimiento));
         
         // F. FIRMA
         const firmaExistente = sesionAEditar.firma_tutor_url || sesionAEditar.firma_tutor;
         if (firmaExistente && firmaExistente.length > 50) {
-            setEditarFirma(false); // Hay firma -> Mostrar imagen
+            setEditarFirma(false); 
         } else {
-            setEditarFirma(true);  // No hay firma -> Mostrar canvas
+            setEditarFirma(true);
         }
 
     } else {
@@ -200,7 +207,6 @@ export default function ModalDerivacion({ estudiante, onGuardar, onClose, user, 
       return src.startsWith('http') ? `${src}?t=${Date.now()}` : src;
   };
 
-  // Función para limpiar la firma
   const limpiarFirma = () => {
       if (firmaRef.current && firmaRef.current.instance) {
           firmaRef.current.instance.clear();
@@ -208,7 +214,6 @@ export default function ModalDerivacion({ estudiante, onGuardar, onClose, user, 
   };
 
   return (
-    // CAMBIO IMPORTANTE: zIndex elevado a 3500 para superar al Historial (2000)
     <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 3500 }}>
       <div className="modal-content" style={{ backgroundColor: 'white', padding: '30px', borderRadius: '8px', width: '800px', maxHeight: '95vh', overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
         

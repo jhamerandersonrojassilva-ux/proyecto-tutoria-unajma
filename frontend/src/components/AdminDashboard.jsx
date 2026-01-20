@@ -59,6 +59,43 @@ const AdminDashboard = () => {
     } catch (err) { console.error("Error datos admin:", err); }
   };
 
+  // --- NUEVA FUNCIÓN: DESCARGAR ADJUNTO CON NOMBRE DEL TUTOR ---
+  const descargarAdjuntoConNombre = async (urlRelativa, nombreTutor, tipoDoc = "Informe") => {
+    try {
+      if (!urlRelativa) return toast.error("No hay archivo adjunto.");
+      
+      const toastId = toast.loading("Preparando descarga...");
+      const fullUrl = `${BASE_URL}${urlRelativa}`;
+
+      // 1. Obtener el archivo como blob
+      const response = await fetch(fullUrl);
+      if (!response.ok) throw new Error("Error al obtener el archivo");
+      const blob = await response.blob();
+
+      // 2. Limpiar nombre del tutor y construir nombre de archivo
+      const tutorLimpio = (nombreTutor || "Tutor").replace(/[^a-zA-Z0-9]/g, "_");
+      const extension = urlRelativa.split('.').pop().split('?')[0] || "pdf";
+      const nombreArchivo = `${tipoDoc}_${tutorLimpio}.${extension}`;
+
+      // 3. Crear link y descargar
+      const link = document.createElement('a');
+      link.href = window.URL.createObjectURL(blob);
+      link.download = nombreArchivo;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(link.href);
+      
+      toast.dismiss(toastId);
+      toast.success("Archivo descargado");
+    } catch (error) {
+      console.error("Error descarga:", error);
+      toast.error("Error al descargar archivo");
+      // Fallback
+      window.open(`${BASE_URL}${urlRelativa}`, '_blank');
+    }
+  };
+
   // --- LÓGICA NOTIFICACIONES ---
   const cargarNotificaciones = async () => {
     try {
@@ -159,7 +196,7 @@ const AdminDashboard = () => {
   const abrirLegajo = async (t) => { try { setTutorSeleccionado(t); const res = await api.get(`/admin/resumen-legajo/${t.id}`); setResumenLegajo(res.data); setMostrarModalLegajo(true); } catch (e) { console.error(e); }};
   
   const manejarDescargaConsolidado = async () => { if(!tutorSeleccionado) return; setCargandoReporte(true); try { const res = await api.get(`/admin/reporte-consolidado/${tutorSeleccionado.id}`); generarPDFConsolidado(res.data, cicloActivo?.nombre_ciclo); toast.success("Generado"); } catch (e) { toast.error("Error"); } finally { setCargandoReporte(false); }};
-  
+
   return (
     <div style={localStyles.container}>
       <header style={localStyles.header}>
@@ -202,7 +239,6 @@ const AdminDashboard = () => {
         {tab === 'tutores' && <TutorManager roles={roles} onUpdate={fetchData} />}
         {tab === 'carga' && <BulkAsignacion tutores={tutores} cicloActivo={cicloActivo} />}
 
-        {/* --- PESTAÑA: GESTIÓN DE ESTUDIANTES --- */}
         {tab === 'reasignacion' && (
           <div style={{animation: 'fadeIn 0.3s'}}>
             <h3 style={localStyles.sectionTitle}>✏️ Edición y Reasignación de Estudiantes</h3>
@@ -214,7 +250,7 @@ const AdminDashboard = () => {
             {resultadosBusqueda.length > 0 && (
               <div style={localStyles.resultsBox}>
                 {resultadosBusqueda.map(res => {
-                  const tutorActual = tutores.find(t => t.id === res.tutor_asignado_id);
+                  const tutorActual = res.tutores || tutores.find(t => t.id === res.tutor_asignado_id);
                   return (
                     <div key={res.id} onClick={() => seleccionarEstudiante(res)} style={localStyles.resultItem}>
                       <div><div style={{fontWeight:'bold'}}>{res.nombres_apellidos}</div><div style={{fontSize:'12px', color:'#64748b'}}>Código: {res.codigo_estudiante} | DNI: {res.dni}</div></div>
@@ -243,7 +279,6 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* --- PESTAÑA NOTIFICACIONES --- */}
         {tab === 'notificaciones' && (
             <div style={{animation: 'fadeIn 0.3s'}}>
                 <h3 style={localStyles.sectionTitle}>📢 Centro de Notificaciones (WhatsApp)</h3>
@@ -278,7 +313,6 @@ const AdminDashboard = () => {
             </div>
         )}
 
-        {/* --- PESTAÑA: BANDEJA DE INFORMES (SEGUIMIENTO) --- */}
         {tab === 'seguimiento' && (
           <div style={{ animation: 'fadeIn 0.5s' }}>
             <div style={localStyles.cardHeader}>
@@ -299,7 +333,9 @@ const AdminDashboard = () => {
               </thead>
               <tbody>
                 {seguimiento.length > 0 ? (
-                  seguimiento.map((rem) => (
+                  seguimiento.map((rem) => {
+                    const tutorNombre = rem.tutor?.nombres_apellidos || rem.nombre_tutor || 'Docente';
+                    return (
                     <tr key={rem.id} style={{borderBottom:'1px solid #f1f5f9', backgroundColor: rem.estado === 'OBSERVADO' ? '#fff7ed' : 'white'}}>
                       
                       {/* 1. FECHA */}
@@ -310,7 +346,7 @@ const AdminDashboard = () => {
 
                       {/* 2. DOCENTE */}
                       <td style={localStyles.td}>
-                        <div style={{fontWeight:'700', color:'#334155'}}>{rem.tutor?.nombres_apellidos || rem.nombre_tutor || 'Docente'}</div>
+                        <div style={{fontWeight:'700', color:'#334155'}}>{tutorNombre}</div>
                         <div style={{fontSize:'11px', color:'#64748b'}}>{rem.tutor?.codigo_docente || ''}</div>
                       </td>
 
@@ -329,22 +365,22 @@ const AdminDashboard = () => {
                       {/* 4. DATOS CLAVE */}
                       <td style={localStyles.td}>
                           <div style={{fontSize:'12px', lineHeight:'1.4', color:'#334155'}}>
-                              👥 <b>{rem.total_estudiantes || 0}</b> Estudiantes<br/>
-                              <div style={{display:'flex', alignItems:'center', gap:'5px', marginTop:'2px'}}>
-                                  📊 Avance: <b>{rem.avance_porcentaje}%</b>
-                                  <div style={{width:'40px', height:'4px', backgroundColor:'#e2e8f0', borderRadius:'2px'}}>
-                                      <div style={{width: `${rem.avance_porcentaje}%`, height:'100%', backgroundColor: rem.avance_porcentaje < 50 ? '#ef4444' : '#10b981', borderRadius:'2px'}}></div>
-                                  </div>
-                              </div>
+                            👥 <b>{rem.total_estudiantes || 0}</b> Estudiantes<br/>
+                            <div style={{display:'flex', alignItems:'center', gap:'5px', marginTop:'2px'}}>
+                                📊 Avance: <b>{rem.avance_porcentaje}%</b>
+                                <div style={{width:'40px', height:'4px', backgroundColor:'#e2e8f0', borderRadius:'2px'}}>
+                                    <div style={{width: `${rem.avance_porcentaje}%`, height:'100%', backgroundColor: rem.avance_porcentaje < 50 ? '#ef4444' : '#10b981', borderRadius:'2px'}}></div>
+                                </div>
+                            </div>
                           </div>
                       </td>
 
-                      {/* 5. ADJUNTO */}
+                      {/* 5. ADJUNTO (ACTUALIZADO PARA DESCARGAR CON NOMBRE) */}
                       <td style={localStyles.td}>
                         {rem.archivo_url ? (
                           <button 
-                            onClick={() => window.open(`${BASE_URL}${rem.archivo_url}`, '_blank')}
-                            title="Ver documento adjunto"
+                            onClick={() => descargarAdjuntoConNombre(rem.archivo_url, tutorNombre, "Informe")}
+                            title="Descargar adjunto con nombre del docente"
                             style={{...localStyles.actionBtn, backgroundColor:'#8b5cf6', minWidth:'35px'}}
                           >
                             📥
@@ -352,7 +388,7 @@ const AdminDashboard = () => {
                         ) : <span style={{color:'#cbd5e1', fontSize:'11px'}}>--</span>}
                       </td>
 
-                      {/* 6. ACCIONES COMPLETO */}
+                      {/* 6. ACCIONES DE GESTIÓN */}
                       <td style={localStyles.td}>
                         <div style={{display:'flex', gap:'6px'}}>
                             
@@ -423,7 +459,7 @@ const AdminDashboard = () => {
                                 </button>
                             )}
 
-                            {/* DEVOLVER / REABRIR (SIEMPRE DISPONIBLE - BOTÓN NARANJA) */}
+                            {/* DEVOLVER / REABRIR */}
                             <button 
                                 onClick={() => {
                                     Swal.fire({
@@ -437,7 +473,6 @@ const AdminDashboard = () => {
                                         confirmButtonText: rem.estado === 'APROBADO' ? 'Sí, Reabrir' : 'Sí, Devolver'
                                     }).then(async (result) => {
                                         if (result.isConfirmed) {
-                                            // AL BORRAR, SE DESBLOQUEA AUTOMÁTICAMENTE EL PANEL DEL TUTOR
                                             await api.delete(`/admin/informes/${rem.id}`); 
                                             toast.success("Informe devuelto/reabierto exitosamente.");
                                             cargarSeguimiento();
@@ -450,7 +485,7 @@ const AdminDashboard = () => {
                                 🔄
                             </button>
                             
-                            {/* ELIMINAR (SOLO PARA LIMPIEZA) */}
+                            {/* ELIMINAR */}
                             <button 
                                 onClick={async () => {
                                     if(await Swal.fire({title:'¿Eliminar registro?', text:'Se borrará del historial.', icon:'error', showCancelButton:true, confirmButtonText:'Eliminar'}).then(r=>r.isConfirmed)) {
@@ -467,7 +502,7 @@ const AdminDashboard = () => {
                         </div>
                       </td>
                     </tr>
-                  ))
+                  )})
                 ) : (
                   <tr>
                     <td colSpan="6" style={{padding:'40px', textAlign:'center', color:'#64748b'}}>
@@ -483,7 +518,25 @@ const AdminDashboard = () => {
       </div>
 
       {mostrarModalLegajo && (
-        <div style={localStyles.modalOverlay}><div style={localStyles.modalContent}><div style={localStyles.modalHeader}><h2 style={{margin:0, fontSize:'18px'}}>📂 Legajo: {tutorSeleccionado?.nombre}</h2><button onClick={() => setMostrarModalLegajo(false)} style={localStyles.closeBtn}>✕</button></div><div style={{padding:'20px'}}><div style={localStyles.gridLegajo}>{['F01', 'F02', 'F03', 'F04', 'F05'].map(f => { const d = resumenLegajo.find(r => r.tipo === f) || { cantidad: 0 }; return <div key={f} style={localStyles.cardLegajo}><span style={localStyles.tag}>{f}</span><span style={localStyles.qty}>{d.cantidad}</span></div> })}</div><button disabled={cargandoReporte} onClick={manejarDescargaConsolidado} style={localStyles.downloadBtn}>{cargandoReporte ? 'Generando...' : '📥 Descargar Consolidado PDF'}</button></div></div></div>
+        <div style={localStyles.modalOverlay}>
+          <div style={localStyles.modalContent}>
+            <div style={localStyles.modalHeader}>
+              <h2 style={{margin:0, fontSize:'18px'}}>📂 Legajo: {tutorSeleccionado?.nombre}</h2>
+              <button onClick={() => setMostrarModalLegajo(false)} style={localStyles.closeBtn}>✕</button>
+            </div>
+            <div style={{padding:'20px'}}>
+              <div style={localStyles.gridLegajo}>
+                {['F01', 'F02', 'F03', 'F04', 'F05'].map(f => { 
+                  const d = resumenLegajo.find(r => r.tipo === f) || { cantidad: 0 }; 
+                  return <div key={f} style={localStyles.cardLegajo}><span style={localStyles.tag}>{f}</span><span style={localStyles.qty}>{d.cantidad}</span></div> 
+                })}
+              </div>
+              <button disabled={cargandoReporte} onClick={manejarDescargaConsolidado} style={localStyles.downloadBtn}>
+                {cargandoReporte ? 'Generando...' : '📥 Descargar Consolidado PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -500,7 +553,6 @@ const localStyles = {
   contentCard: { backgroundColor: 'white', borderRadius: '12px', padding: '25px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' },
   sectionTitle: { marginBottom: '20px', color: '#1e293b', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' },
   
-  // Estilos de Tablas y Listas
   table: { width: '100%', borderCollapse: 'collapse', fontSize: '14px' },
   trHead: { backgroundColor: '#f8fafc', textAlign: 'left' },
   th: { padding: '12px', borderBottom: '2px solid #e2e8f0', color: '#475569' },
@@ -508,7 +560,6 @@ const localStyles = {
   td: { padding: '12px', color: '#334155', verticalAlign: 'middle' },
   badge: { padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' },
   
-  // Estilos Edición Estudiante
   searchBtn: { backgroundColor: '#0f172a', color: 'white', border: 'none', padding: '0 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' },
   resultsBox: { border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px', marginBottom: '20px', maxHeight: '200px', overflowY: 'auto' },
   resultItem: { padding: '10px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'background 0.2s', ':hover': { backgroundColor: '#f8fafc' } },
@@ -519,12 +570,10 @@ const localStyles = {
   btnSave: { backgroundColor: '#2563eb', color: 'white', padding: '10px 20px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 'bold' },
   btnCancel: { backgroundColor: '#94a3b8', color: 'white', padding: '10px 20px', borderRadius: '6px', border: 'none', cursor: 'pointer' },
   
-  // Estilos Notificaciones WhatsApp
   queueCard: { backgroundColor: '#f8fafc', padding: '30px', borderRadius: '12px', border: '2px dashed #cbd5e1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
   btnWhatsApp: { backgroundColor: '#16a34a', color: 'white', padding: '15px 30px', borderRadius: '30px', border: 'none', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(22, 163, 74, 0.4)', transition: 'transform 0.1s', display:'flex', alignItems:'center', gap:'8px' },
   actionBtn: { backgroundColor: '#0f172a', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', display:'flex', alignItems:'center', justifyContent:'center' },
 
-  // Botones Panel Seguimiento
   cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' },
   btnRefresh: { backgroundColor: '#f1f5f9', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', color: '#475569', fontSize: '13px', fontWeight: '600' },
 

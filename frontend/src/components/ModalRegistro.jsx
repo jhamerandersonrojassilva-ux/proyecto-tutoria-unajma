@@ -151,7 +151,6 @@ export default function ModalRegistro({ estudiante, onGuardar, onClose, sesionAE
   }, [editarFirmaTutor, editarFirmaEst]);
 
   // --- 4. HANDLE SUBMIT (GUARDAR) ---
-  // --- 4. HANDLE SUBMIT (GUARDAR) ---
   const handleSubmit = (e) => {
     e.preventDefault();
 
