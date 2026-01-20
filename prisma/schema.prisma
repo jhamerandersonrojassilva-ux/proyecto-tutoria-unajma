@@ -9,7 +9,7 @@ datasource db {
 
 model roles {
   id         Int        @id @default(autoincrement())
-  nombre_rol String     @unique @db.VarChar(50) // 'ADMIN', 'TUTOR'
+  nombre_rol String     @unique @db.VarChar(50) // SUPER_ADMIN, ADMIN_TUTORIA, TUTOR
   usuarios   usuarios[]
 }
 
@@ -18,11 +18,15 @@ model usuarios {
   username      String    @unique @db.VarChar(50)
   password_hash String
   rol_id        Int?
+  escuela_id    Int?
   activo        Boolean?  @default(true)
   telefono      String?   @db.VarChar(15) // Nuevo: Para enviar accesos por WhatsApp
+  super_user    Boolean   @default(false)
   tutor         tutores?
   roles         roles?    @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  escuela       escuelas? @relation(fields: [escuela_id], references: [id]) // <--- NUEVO
 }
+
 
 // Nuevo: Modelo para manejar los periodos (2025-I, 2025-II, etc.)
 model ciclos {
@@ -30,6 +34,8 @@ model ciclos {
   nombre_ciclo String         @unique @db.VarChar(20)
   activo       Boolean        @default(true)
   asignaciones asignaciones[]
+  escuela_id Int?
+  escuela    escuelas? @relation(fields: [escuela_id], references: [id])
 }
 
 model tutores {
@@ -48,6 +54,8 @@ model tutores {
   sesiones_tutoria     sesiones_tutoria[]
   asignaciones         asignaciones[] // Relación con la nueva tabla
   usuario              usuarios?             @relation(fields: [usuario_id], references: [id])
+  escuela_id Int?
+  escuela    escuelas? @relation(fields: [escuela_id], references: [id])
 }
 
 // Nuevo: Tabla Maestra de Asignaciones (El corazón del Admin)
@@ -87,6 +95,8 @@ model estudiantes {
   tutores                 tutores?              @relation(fields: [tutor_asignado_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sesiones_tutoria        sesiones_tutoria[]
   asignaciones            asignaciones[] // Relación con la nueva tabla
+  escuela_id Int?
+  escuela    escuelas? @relation(fields: [escuela_id], references: [id])
 }
 
 // ... EL RESTO DE TUS MODELOS SE MANTIENEN IGUAL (sesiones_tutoria, derivaciones, etc.) ...
@@ -273,6 +283,17 @@ model informes_semestrales {
 
   created_at        DateTime @default(now())
 }
+
+model escuelas {
+  id          Int           @id @default(autoincrement())
+  nombre      String        @unique @db.VarChar(100)
+  usuarios    usuarios[]
+  estudiantes estudiantes[]
+  tutores     tutores[]
+  ciclos      ciclos[]
+}
+
+
 
   // Relación con Tutor (opcional si quieres unir tablas)
   // tutor             tutores @relation(fields: [tutor_id], references: [id]) 

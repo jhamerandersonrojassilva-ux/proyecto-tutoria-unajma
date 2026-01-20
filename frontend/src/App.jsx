@@ -152,71 +152,86 @@ function App() {
   };
 
   const cargarEstudiantes = async () => {
-    if (!user || !user.token) return;
-    if (user.roles?.nombre_rol === 'ADMIN' || user.rol_id === 1) return;
+  if (!user || !user.token) return;
 
-    try {
-      const tutorId = user.tutor_id || user.id;
-      const res = await api.get(`/estudiantes?tutor_id=${tutorId}&_=${Date.now()}`);
+  // ELIMINADO: Ya no retornamos si es ADMIN, porque ahora la Directora 
+  // y el Responsable deben poder ver a los estudiantes de su escuela.
 
-      if (!res.data) return;
+  try {
+    let url = '';
+    
+    // Lógica de URL basada en el nuevo Rol y Escuela
+    if (user.is_super_user || user.roles?.nombre_rol === 'ADMIN_TUTORIA') {
+      // Si es Directora o Responsable, cargamos por escuela_id
+      url = `/estudiantes?escuela_id=${user.escuela_id}&_=${Date.now()}`;
+    } else {
+      // Si es un Tutor normal, cargamos solo sus alumnos asignados
+      const tutorId = user.tutor_id; 
+      url = `/estudiantes?tutor_id=${tutorId}&_=${Date.now()}`;
+    }
 
-      const actualizados = res.data.map(est => {
-        const derivacionesProcesadas = (est.derivaciones || []).map(d => ({
-          ...d,
-          tipo_formato: 'F05',
-          titulo_visual: `F05 - ${d.area_destino || 'General'}`,
-          firma_tutor_url: d.firma_tutor_url || d.firma_tutor
-        }));
+    const res = await api.get(url);
 
-        const sesionesGrupales = (est.asistencia_grupal || []).map(asistencia => {
-          if (!asistencia.sesion_grupal) return null;
-          return {
-            ...asistencia.sesion_grupal,
-            tipo_formato: 'F02',
-            titulo_visual: `F02 - ${asistencia.sesion_grupal.tema || 'Grupal'}`,
-            key_unificada: `f02-${asistencia.id}`
-          };
-        }).filter(Boolean);
+    if (!res.data) return;
 
-        const sesionesIndividuales = (est.sesiones_tutoria || []).map(s => {
-          const base = s.tipo_formato || 'F04';
-          let visual = base;
-          if (base === 'F04' && s.motivo_consulta) {
-            visual = `F04 - ${s.motivo_consulta.substring(0, 15)}...`;
-          } else if (base === 'F03') {
-            visual = `F03 - Entrevista Personal`;
-          }
-          return {
-            ...s,
-            tipo_formato: base,
-            titulo_visual: visual,
-            firma_tutor_url: s.firma_tutor_url || s.firma_tutor
-          };
-        });
+    const actualizados = res.data.map(est => {
+      // Mantenemos tu lógica de procesamiento de derivaciones (F05)
+      const derivacionesProcesadas = (est.derivaciones || []).map(d => ({
+        ...d,
+        tipo_formato: 'F05',
+        titulo_visual: `F05 - ${d.area_destino || 'General'}`,
+        firma_tutor_url: d.firma_tutor_url || d.firma_tutor
+      }));
 
-        const todasLasSesiones = [...sesionesIndividuales, ...derivacionesProcesadas, ...sesionesGrupales]
-          .sort((a, b) => new Date(b.fecha || b.fecha_solicitud || 0) - new Date(a.fecha || a.fecha_solicitud || 0));
+      // Mantenemos tu lógica de procesamiento de sesiones grupales (F02)
+      const sesionesGrupales = (est.asistencia_grupal || []).map(asistencia => {
+        if (!asistencia.sesion_grupal) return null;
+        return {
+          ...asistencia.sesion_grupal,
+          tipo_formato: 'F02',
+          titulo_visual: `F02 - ${asistencia.sesion_grupal.tema || 'Grupal'}`,
+          key_unificada: `f02-${asistencia.id}`
+        };
+      }).filter(Boolean);
 
-        return { ...est, sesiones: todasLasSesiones };
+      // Mantenemos tu lógica de procesamiento de sesiones individuales (F03, F04)
+      const sesionesIndividuales = (est.sesiones_tutoria || []).map(s => {
+        const base = s.tipo_formato || 'F04';
+        let visual = base;
+        if (base === 'F04' && s.motivo_consulta) {
+          visual = `F04 - ${s.motivo_consulta.substring(0, 15)}...`;
+        } else if (base === 'F03') {
+          visual = `F03 - Entrevista Personal`;
+        }
+        return {
+          ...s,
+          tipo_formato: base,
+          titulo_visual: visual,
+          firma_tutor_url: s.firma_tutor_url || s.firma_tutor
+        };
       });
 
-      setEstudiantes(actualizados);
+      const todasLasSesiones = [...sesionesIndividuales, ...derivacionesProcesadas, ...sesionesGrupales]
+        .sort((a, b) => new Date(b.fecha || b.fecha_solicitud || 0) - new Date(a.fecha || a.fecha_solicitud || 0));
 
-      if (estudianteSeleccionado) {
-        const estFresco = actualizados.find(e => Number(e.id) === Number(estudianteSeleccionado.id));
-        if (estFresco) setEstudianteSeleccionado(estFresco);
-      }
-    } catch (err) {
-      console.error("Error al cargar estudiantes:", err);
+      return { ...est, sesiones: todasLasSesiones };
+    });
 
-      // --- MANEJO DE SESIÓN EXPIRADA ---
-      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-        toast.error("Tu sesión ha expirado. Por favor ingresa nuevamente.");
-        handleLogout();
-      }
+    setEstudiantes(actualizados);
+
+    if (estudianteSeleccionado) {
+      const estFresco = actualizados.find(e => Number(e.id) === Number(estudianteSeleccionado.id));
+      if (estFresco) setEstudianteSeleccionado(estFresco);
     }
-  };
+  } catch (err) {
+    console.error("Error al cargar estudiantes:", err);
+
+    if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+      toast.error("Tu sesión ha expirado. Por favor ingresa nuevamente.");
+      handleLogout();
+    }
+  }
+};
 
   const refrescarHistorial = async (estId) => {
     if (!estId) return;
@@ -414,20 +429,20 @@ function App() {
 
         // === CORRECCIÓN SEMESTRE DESDE F01 ===
         let semestreFinal = datos.semestre || estudianteSeleccionado.ciclo_actual;
-        
+
         // Si no tenemos semestre, lo buscamos dentro de la Ficha F01 guardada
         if (!semestreFinal) {
-            const fichaF01 = estudianteSeleccionado.sesiones?.find(s => s.tipo_formato === 'F01');
-            if (fichaF01?.desarrollo_entrevista) {
-                try {
-                    const f01Data = typeof fichaF01.desarrollo_entrevista === 'string'
-                        ? JSON.parse(fichaF01.desarrollo_entrevista)
-                        : fichaF01.desarrollo_entrevista;
-                    
-                    // Buscamos campos comunes de semestre/ciclo
-                    semestreFinal = f01Data.ciclo || f01Data.semestre || f01Data.ciclo_actual;
-                } catch (e) { console.warn("No se pudo leer semestre de F01", e); }
-            }
+          const fichaF01 = estudianteSeleccionado.sesiones?.find(s => s.tipo_formato === 'F01');
+          if (fichaF01?.desarrollo_entrevista) {
+            try {
+              const f01Data = typeof fichaF01.desarrollo_entrevista === 'string'
+                ? JSON.parse(fichaF01.desarrollo_entrevista)
+                : fichaF01.desarrollo_entrevista;
+
+              // Buscamos campos comunes de semestre/ciclo
+              semestreFinal = f01Data.ciclo || f01Data.semestre || f01Data.ciclo_actual;
+            } catch (e) { console.warn("No se pudo leer semestre de F01", e); }
+          }
         }
         // Valor por defecto si falla todo
         if (!semestreFinal) semestreFinal = "No registrado";
@@ -455,7 +470,7 @@ function App() {
 
         let desarrolloString = datos.desarrollo_entrevista;
         if (desarrolloString && typeof desarrolloString === 'object') {
-            desarrolloString = JSON.stringify(desarrolloString);
+          desarrolloString = JSON.stringify(desarrolloString);
         }
 
         payload = {
@@ -474,23 +489,23 @@ function App() {
       const res = await api[metodo](ruta, payload);
 
       if (res.status === 200 || res.status === 201) {
-        
+
         // 4. GENERAR PDF
         if (!esDerivacion) {
           const numSeguimiento = (estudianteSeleccionado.sesiones?.filter(s => s.tipo_formato === 'F04').length || 0) + (esEdicion ? 0 : 1);
           try {
-             if (datos.tipo_formato === 'F04' && typeof generarF04 === 'function') {
-                 generarF04(payload, estudianteSeleccionado, false, String(numSeguimiento)); 
-             } else if (datos.tipo_formato === 'F03' && typeof generarF03 === 'function') {
-                 generarF03(payload, estudianteSeleccionado);
-             }
-          } catch(e) { console.error("Error PDF", e); }
+            if (datos.tipo_formato === 'F04' && typeof generarF04 === 'function') {
+              generarF04(payload, estudianteSeleccionado, false, String(numSeguimiento));
+            } else if (datos.tipo_formato === 'F03' && typeof generarF03 === 'function') {
+              generarF03(payload, estudianteSeleccionado);
+            }
+          } catch (e) { console.error("Error PDF", e); }
         } else {
           if (typeof generarF05 === 'function') generarF05(payload, estudianteSeleccionado);
         }
 
         toast.success(`${esDerivacion ? 'Derivación' : 'Sesión'} guardada correctamente`);
-        
+
         await cargarEstudiantes();
         setMostrarModalRegistro(false);
         setMostrarModalDerivacion(false);

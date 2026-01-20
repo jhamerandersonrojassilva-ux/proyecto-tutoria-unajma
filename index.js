@@ -54,29 +54,48 @@ app.post('/auth/login', async (req, res) => {
     const { username, password } = req.body;
     try {
         const usuario = await prisma.usuarios.findFirst({
+            // Buscamos por username y password (como lo tenías)
             where: { username, password_hash: password },
-            include: { tutor: true, roles: true }
+            // IMPORTANTE: Incluimos 'escuela' y 'roles' para los nuevos permisos
+            include: { 
+                tutor: true, 
+                roles: true,
+                escuela: true // <--- NUEVO: Para saber de qué escuela es
+            }
         });
 
         if (usuario) {
+            // Añadimos escuela_id y super_user al TOKEN para que sea seguro
             const token = jwt.sign(
-                { id: usuario.id, rol: usuario.roles?.nombre_rol },
+                { 
+                    id: usuario.id, 
+                    rol: usuario.roles?.nombre_rol,
+                    escuela_id: usuario.escuela_id, // <--- NUEVO
+                    super_user: usuario.super_user  // <--- NUEVO
+                },
                 SECRET_KEY,
                 { expiresIn: '8h' }
             );
+
+            // Enviamos la respuesta completa al Frontend
             res.json({
                 id: usuario.id,
                 username: usuario.username,
                 roles: usuario.roles,
                 tutor_id: usuario.tutor?.id || null,
                 nombre: usuario.tutor?.nombres_apellidos || usuario.username,
+                // --- NUEVOS CAMPOS CLAVE ---
+                escuela_id: usuario.escuela_id,
+                escuela_nombre: usuario.escuela?.nombre || "No asignada",
+                is_super_user: usuario.super_user, // <--- Esto usará React para mostrar el botón de la Directora
+                // ---------------------------
                 token: token
             });
         } else {
             res.status(401).json({ error: "Credenciales incorrectas" });
         }
     } catch (error) {
-        console.error(error);
+        console.error("Error en Login:", error);
         res.status(500).json({ error: "Error en el servidor" });
     }
 });
@@ -99,33 +118,69 @@ app.post('/cambiar-clave', async (req, res) => {
 // 2. OBTENER LISTA DE ESTUDIANTES (DASHBOARD)
 app.get('/estudiantes', verifyToken, async (req, res) => {
     try {
-        const tutor = await prisma.tutores.findUnique({ where: { usuario_id: req.userId } });
-        if (!tutor) return res.status(404).json({ error: "Tutor no encontrado o no asignado." });
+        // 1. Obtenemos los datos del usuario desde el token (inyectados por verifyToken)
+        const { userId, rol, escuela_id, super_user } = req; 
 
+        let filtro = {};
+
+        // 2. Lógica de Filtrado por Jerarquía
+        if (super_user || rol === 'ADMIN_TUTORIA') {
+            // Si es Directora o Responsable, filtramos por toda la escuela
+            if (!escuela_id) return res.status(403).json({ error: "Usuario administrativo sin escuela asignada." });
+            filtro = { escuela_id: escuela_id };
+        } else {
+            // Si es un Tutor, buscamos su registro vinculado para obtener su ID de tutor
+            const tutor = await prisma.tutores.findUnique({ where: { usuario_id: userId } });
+            if (!tutor) return res.status(404).json({ error: "Perfil de tutor no encontrado." });
+            filtro = { tutor_asignado_id: tutor.id };
+        }
+
+        // 3. Consulta a la Base de Datos
         const estudiantesRaw = await prisma.estudiantes.findMany({
-            where: { tutor_asignado_id: tutor.id },
+            where: filtro,
             include: {
                 sesiones_tutoria: true,
                 derivaciones: true,
-                asistencia_grupal: { include: { sesion_grupal: true } }
+                asistencia_grupal: { 
+                    include: { 
+                        sesion_grupal: true 
+                    } 
+                }
             },
             orderBy: { nombres_apellidos: 'asc' }
         });
 
+        // 4. Procesamiento de Sesiones (Unificación de formatos)
         const estudiantesProcesados = estudiantesRaw.map(est => {
             const sesionesUnificadas = [
-                ...est.sesiones_tutoria.map(s => ({ ...s, tipo_formato: s.tipo_formato || 'F04' })),
-                ...est.derivaciones.map(d => ({ ...d, tipo_formato: 'F05', fecha: d.fecha_solicitud })),
-                ...est.asistencia_grupal.map(a => ({ ...a.sesion_grupal, tipo_formato: 'F02' }))
+                ...est.sesiones_tutoria.map(s => ({ 
+                    ...s, 
+                    tipo_formato: s.tipo_formato || 'F04',
+                    fecha: s.fecha // Aseguramos que tenga campo fecha para el sort
+                })),
+                ...est.derivaciones.map(d => ({ 
+                    ...d, 
+                    tipo_formato: 'F05', 
+                    fecha: d.fecha_solicitud 
+                })),
+                ...est.asistencia_grupal.map(a => {
+                    if (!a.sesion_grupal) return null;
+                    return { 
+                        ...a.sesion_grupal, 
+                        tipo_formato: 'F02',
+                        fecha: a.sesion_grupal.fecha 
+                    };
+                }).filter(Boolean)
             ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
             return { ...est, sesiones: sesionesUnificadas };
         });
 
         res.json(estudiantesProcesados);
+
     } catch (error) {
         console.error("Error en GET /estudiantes:", error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: "Error interno del servidor al obtener estudiantes." });
     }
 });
 
@@ -668,7 +723,47 @@ app.put('/sesiones/:id', upload.none(), async (req, res) => {
         res.status(500).json({ error: "No se pudo actualizar la sesión" });
     }
 });
-// INICIAR SERVIDOR
+
+// Ruta para que la Directora cree o vea Responsables de Tutoría
+app.post('/admin/registrar-responsable', verifyToken, async (req, res) => {
+    const { username, password, telefono } = req.body;
+    const { super_user, escuela_id } = req; // Datos que vienen del token
+
+    // 1. Verificamos que sea la Directora (SuperUser)
+    if (!super_user) {
+        return res.status(403).json({ error: "No tienes permisos de Directora para realizar esta acción." });
+    }
+
+    try {
+        // 2. Buscamos el ID del rol ADMIN_TUTORIA
+        const rolAdmin = await prisma.roles.findUnique({ where: { nombre_rol: 'ADMIN_TUTORIA' } });
+
+        // 3. Creamos el usuario vinculado a la escuela de la Directora
+        const nuevoResponsable = await prisma.usuarios.create({
+            data: {
+                username,
+                password_hash: password, // En producción usar bcrypt
+                rol_id: rolAdmin.id,
+                escuela_id: escuela_id,
+                super_user: false,
+                telefono: telefono,
+                activo: true
+            }
+        });
+
+        res.json({ message: "Responsable de Tutoría registrado con éxito", id: nuevoResponsable.id });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "El nombre de usuario ya existe o hubo un error en el servidor." });
+    }
+});
+
+
+
+
+
+
+// INICIAR SERVIDOR recuerda jhamer poner por encima de este linea las funciones que se crean
 app.listen(PORT, () => {
     console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
 });
