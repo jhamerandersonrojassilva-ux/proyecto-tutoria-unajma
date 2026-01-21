@@ -22,6 +22,7 @@ model usuarios {
   activo        Boolean?  @default(true)
   telefono      String?   @db.VarChar(15) // Nuevo: Para enviar accesos por WhatsApp
   super_user    Boolean   @default(false)
+  url_documento String?
   tutor         tutores?
   roles         roles?    @relation(fields: [rol_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   escuela       escuelas? @relation(fields: [escuela_id], references: [id]) // <--- NUEVO
@@ -53,6 +54,7 @@ model tutores {
   sesiones_grupales    sesiones_grupales[]
   sesiones_tutoria     sesiones_tutoria[]
   asignaciones         asignaciones[] // Relación con la nueva tabla
+  informes_semestrales informes_semestrales[]
   usuario              usuarios?             @relation(fields: [usuario_id], references: [id])
   escuela_id Int?
   escuela    escuelas? @relation(fields: [escuela_id], references: [id])
@@ -268,7 +270,7 @@ model informes_semestrales {
   tutor_id          Int
   semestre          String?  @default("2025-I") @db.VarChar(20)
   fecha_envio       DateTime @default(now())
-  
+  tutor             tutores  @relation(fields: [tutor_id], references: [id])
   // ... tus otros campos ...
   total_estudiantes Int?     @default(0)
   total_atendidos   Int?     @default(0)

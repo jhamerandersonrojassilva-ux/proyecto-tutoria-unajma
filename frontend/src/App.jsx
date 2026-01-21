@@ -7,7 +7,7 @@ import Login from './components/Login';
 import DashboardMaestro from './components/DashboardMaestro';
 import CalendarioAcademico from './components/CalendarioAcademico';
 import AdminDashboard from './components/AdminDashboard';
-
+import GestionPersonal from './components/GestionPersonal';
 // --- MODALES ---
 import ModalRegistro from './components/ModalRegistro';
 import ModalHistorial from './components/ModalHistorial';
@@ -72,18 +72,23 @@ function App() {
       setUser(data);
       localStorage.setItem('user', JSON.stringify(data));
 
-      const esAdmin = (data.roles?.nombre_rol === 'ADMIN') || (data.rol_id === 1);
-      if (esAdmin) {
+      const tienePermisosAdmin =
+        data.is_super_user === true ||
+        data.roles?.nombre_rol === 'ADMIN' ||
+        data.roles?.nombre_rol === 'ADMIN_TUTORIA' ||
+        data.rol_id === 1;
+
+      if (tienePermisosAdmin) {
         setVistaActual('admin');
+        toast.success(data.is_super_user ? `🏛️ Bienvenida, Dra. ${data.username}` : `⚙️ Hola, ${data.username}`);
       } else {
         setVistaActual('dashboard');
-        // Verificamos si ya envió informe al loguearse
         verificarEstadoInforme(data.tutor_id || data.id);
+        toast.success(`👋 Bienvenido Tutor: ${data.username}`);
       }
-      toast.success(`Bienvenido, ${data.nombre}`);
     } catch (err) {
       console.error(err);
-      toast.error("Error de acceso o credenciales incorrectas");
+      toast.error("Error de acceso o servidor desconectado");
     }
   };
 
@@ -102,30 +107,29 @@ function App() {
 
     if (user && user.token) {
       cargarEstudiantes();
-      const esAdmin = (user.roles?.nombre_rol === 'ADMIN') || (user.rol_id === 1);
 
-      if (esAdmin && vistaActual !== 'admin') {
+      const tienePoderAdmin = user.is_super_user ||
+        user.roles?.nombre_rol === 'ADMIN' ||
+        user.rol_id === 1;
+
+      // Redirigir al panel admin solo si es la primera carga y no estamos en calendario
+      if (tienePoderAdmin && vistaActual === 'dashboard') {
         setVistaActual('admin');
-      } else if (!esAdmin) {
-        // LÓGICA DE ACTUALIZACIÓN AUTOMÁTICA (POLLING)
+      }
+
+      if (!tienePoderAdmin) {
         const tutorId = user.tutor_id || user.id;
-
-        // 1. Verificación inmediata al cargar
         verificarEstadoInforme(tutorId);
-
-        // 2. Verificación periódica cada 3 segundos
-        // Esto hace que si el admin devuelve el informe, el botón cambie solo.
         intervaloPolling = setInterval(() => {
           verificarEstadoInforme(tutorId);
-        }, 3000);
+        }, 5000);
       }
     }
 
-    // Limpieza: Detener el reloj cuando se cierre sesión o cambie el usuario
     return () => {
       if (intervaloPolling) clearInterval(intervaloPolling);
     };
-  }, [user]);
+  }, [user]); // Mantenemos solo user para evitar bucles de renderizado
 
   // --- FUNCIÓN ACTUALIZADA: VERIFICAR SI YA ENVIÓ ---
   const verificarEstadoInforme = async (tutorId) => {
@@ -152,86 +156,86 @@ function App() {
   };
 
   const cargarEstudiantes = async () => {
-  if (!user || !user.token) return;
+    if (!user || !user.token) return;
 
-  // ELIMINADO: Ya no retornamos si es ADMIN, porque ahora la Directora 
-  // y el Responsable deben poder ver a los estudiantes de su escuela.
+    // ELIMINADO: Ya no retornamos si es ADMIN, porque ahora la Directora 
+    // y el Responsable deben poder ver a los estudiantes de su escuela.
 
-  try {
-    let url = '';
-    
-    // Lógica de URL basada en el nuevo Rol y Escuela
-    if (user.is_super_user || user.roles?.nombre_rol === 'ADMIN_TUTORIA') {
-      // Si es Directora o Responsable, cargamos por escuela_id
-      url = `/estudiantes?escuela_id=${user.escuela_id}&_=${Date.now()}`;
-    } else {
-      // Si es un Tutor normal, cargamos solo sus alumnos asignados
-      const tutorId = user.tutor_id; 
-      url = `/estudiantes?tutor_id=${tutorId}&_=${Date.now()}`;
-    }
+    try {
+      let url = '';
 
-    const res = await api.get(url);
+      // Lógica de URL basada en el nuevo Rol y Escuela
+      if (user.is_super_user || user.roles?.nombre_rol === 'ADMIN_TUTORIA') {
+        // Si es Directora o Responsable, cargamos por escuela_id
+        url = `/estudiantes?escuela_id=${user.escuela_id}&_=${Date.now()}`;
+      } else {
+        // Si es un Tutor normal, cargamos solo sus alumnos asignados
+        const tutorId = user.tutor_id;
+        url = `/estudiantes?tutor_id=${tutorId}&_=${Date.now()}`;
+      }
 
-    if (!res.data) return;
+      const res = await api.get(url);
 
-    const actualizados = res.data.map(est => {
-      // Mantenemos tu lógica de procesamiento de derivaciones (F05)
-      const derivacionesProcesadas = (est.derivaciones || []).map(d => ({
-        ...d,
-        tipo_formato: 'F05',
-        titulo_visual: `F05 - ${d.area_destino || 'General'}`,
-        firma_tutor_url: d.firma_tutor_url || d.firma_tutor
-      }));
+      if (!res.data) return;
 
-      // Mantenemos tu lógica de procesamiento de sesiones grupales (F02)
-      const sesionesGrupales = (est.asistencia_grupal || []).map(asistencia => {
-        if (!asistencia.sesion_grupal) return null;
-        return {
-          ...asistencia.sesion_grupal,
-          tipo_formato: 'F02',
-          titulo_visual: `F02 - ${asistencia.sesion_grupal.tema || 'Grupal'}`,
-          key_unificada: `f02-${asistencia.id}`
-        };
-      }).filter(Boolean);
+      const actualizados = res.data.map(est => {
+        // Mantenemos tu lógica de procesamiento de derivaciones (F05)
+        const derivacionesProcesadas = (est.derivaciones || []).map(d => ({
+          ...d,
+          tipo_formato: 'F05',
+          titulo_visual: `F05 - ${d.area_destino || 'General'}`,
+          firma_tutor_url: d.firma_tutor_url || d.firma_tutor
+        }));
 
-      // Mantenemos tu lógica de procesamiento de sesiones individuales (F03, F04)
-      const sesionesIndividuales = (est.sesiones_tutoria || []).map(s => {
-        const base = s.tipo_formato || 'F04';
-        let visual = base;
-        if (base === 'F04' && s.motivo_consulta) {
-          visual = `F04 - ${s.motivo_consulta.substring(0, 15)}...`;
-        } else if (base === 'F03') {
-          visual = `F03 - Entrevista Personal`;
-        }
-        return {
-          ...s,
-          tipo_formato: base,
-          titulo_visual: visual,
-          firma_tutor_url: s.firma_tutor_url || s.firma_tutor
-        };
+        // Mantenemos tu lógica de procesamiento de sesiones grupales (F02)
+        const sesionesGrupales = (est.asistencia_grupal || []).map(asistencia => {
+          if (!asistencia.sesion_grupal) return null;
+          return {
+            ...asistencia.sesion_grupal,
+            tipo_formato: 'F02',
+            titulo_visual: `F02 - ${asistencia.sesion_grupal.tema || 'Grupal'}`,
+            key_unificada: `f02-${asistencia.id}`
+          };
+        }).filter(Boolean);
+
+        // Mantenemos tu lógica de procesamiento de sesiones individuales (F03, F04)
+        const sesionesIndividuales = (est.sesiones_tutoria || []).map(s => {
+          const base = s.tipo_formato || 'F04';
+          let visual = base;
+          if (base === 'F04' && s.motivo_consulta) {
+            visual = `F04 - ${s.motivo_consulta.substring(0, 15)}...`;
+          } else if (base === 'F03') {
+            visual = `F03 - Entrevista Personal`;
+          }
+          return {
+            ...s,
+            tipo_formato: base,
+            titulo_visual: visual,
+            firma_tutor_url: s.firma_tutor_url || s.firma_tutor
+          };
+        });
+
+        const todasLasSesiones = [...sesionesIndividuales, ...derivacionesProcesadas, ...sesionesGrupales]
+          .sort((a, b) => new Date(b.fecha || b.fecha_solicitud || 0) - new Date(a.fecha || a.fecha_solicitud || 0));
+
+        return { ...est, sesiones: todasLasSesiones };
       });
 
-      const todasLasSesiones = [...sesionesIndividuales, ...derivacionesProcesadas, ...sesionesGrupales]
-        .sort((a, b) => new Date(b.fecha || b.fecha_solicitud || 0) - new Date(a.fecha || a.fecha_solicitud || 0));
+      setEstudiantes(actualizados);
 
-      return { ...est, sesiones: todasLasSesiones };
-    });
+      if (estudianteSeleccionado) {
+        const estFresco = actualizados.find(e => Number(e.id) === Number(estudianteSeleccionado.id));
+        if (estFresco) setEstudianteSeleccionado(estFresco);
+      }
+    } catch (err) {
+      console.error("Error al cargar estudiantes:", err);
 
-    setEstudiantes(actualizados);
-
-    if (estudianteSeleccionado) {
-      const estFresco = actualizados.find(e => Number(e.id) === Number(estudianteSeleccionado.id));
-      if (estFresco) setEstudianteSeleccionado(estFresco);
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+        toast.error("Tu sesión ha expirado. Por favor ingresa nuevamente.");
+        handleLogout();
+      }
     }
-  } catch (err) {
-    console.error("Error al cargar estudiantes:", err);
-
-    if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-      toast.error("Tu sesión ha expirado. Por favor ingresa nuevamente.");
-      handleLogout();
-    }
-  }
-};
+  };
 
   const refrescarHistorial = async (estId) => {
     if (!estId) return;
@@ -660,28 +664,43 @@ function App() {
 
         <nav style={styles.navMenu}>
           {(() => {
-            const esAdmin = (user.roles?.nombre_rol === 'ADMIN') || (user.rol_id === 1);
+            // Definimos los roles para que el menú sea dinámico
+            const esSuperAdmin = user.is_super_user;
+            const esAdminTutoria = user.roles?.nombre_rol === 'ADMIN_TUTORIA' || user.roles?.nombre_rol === 'ADMIN';
+            const esCualquierAdmin = esSuperAdmin || esAdminTutoria || user.rol_id === 1;
 
             return (
               <>
-                {esAdmin && (
+                {/* 1. BOTÓN PRINCIPAL DINÁMICO (🏠) */}
+                <div
+                  onClick={() => {
+                    // Si es Directora o Admin, su "Home" es el Panel Admin
+                    if (esCualquierAdmin) {
+                      setVistaActual('admin');
+                    } else {
+                      setVistaActual('dashboard');
+                    }
+                  }}
+                  style={(vistaActual === 'dashboard' || vistaActual === 'admin')
+                    ? styles.navItemActive
+                    : styles.navItem}
+                >
+                  <span style={{ marginRight: '12px' }}>🏠</span>
+                  {esSuperAdmin ? 'Panel de Dirección' : 'Panel de Control'}
+                </div>
+
+                {/* 2. PANEL ADMINISTRATIVO (⚙️) - SOLO PARA EL RESPONSABLE OPERATIVO (INGENIERO) */}
+                {/* Se oculta para la Directora porque ella ya usa el Panel de Dirección de arriba */}
+                {esCualquierAdmin && !esSuperAdmin && (
                   <div
                     onClick={() => setVistaActual('admin')}
                     style={vistaActual === 'admin' ? styles.navItemActive : styles.navItem}
                   >
-                    <span style={{ marginRight: '12px' }}>⚙️</span> Panel Admin
+                    <span style={{ marginRight: '12px' }}>⚙️</span> Panel Administrativo
                   </div>
                 )}
 
-                {!esAdmin && (
-                  <div
-                    onClick={() => setVistaActual('dashboard')}
-                    style={vistaActual === 'dashboard' ? styles.navItemActive : styles.navItem}
-                  >
-                    <span style={{ marginRight: '12px' }}>📊</span> Panel de Tutoría
-                  </div>
-                )}
-
+                {/* 3. CALENDARIO (📅) - PARA TODOS */}
                 <div
                   onClick={() => setVistaActual('calendario')}
                   style={vistaActual === 'calendario' ? styles.navItemActive : styles.navItem}
@@ -689,45 +708,34 @@ function App() {
                   <span style={{ marginRight: '12px' }}>📅</span> Calendario
                 </div>
 
-                {!esAdmin && (
+                {/* 4. SECCIÓN ESPECÍFICA PARA TUTORES (Docentes con alumnos) */}
+                {(!esCualquierAdmin) && (
                   <>
+                    <div
+                      onClick={() => setVistaActual('dashboard')}
+                      style={vistaActual === 'dashboard' ? styles.navItemActive : styles.navItem}
+                    >
+                      <span style={{ marginRight: '12px' }}>📊</span> Mis Alumnos
+                    </div>
+
                     {informeEnviado ? (
                       <div
                         onClick={() => {
                           Swal.fire({
                             title: '✅ Informe Enviado',
-                            text: 'Ya has remitido tu informe semestral. Está pendiente de revisión por el Administrador.',
+                            text: 'Su informe semestral está en revisión.',
                             icon: 'info',
                             confirmButtonColor: '#10b981'
                           });
                         }}
-                        style={{
-                          ...styles.navItem,
-                          marginTop: '30px',
-                          backgroundColor: '#10b981',
-                          color: 'white',
-                          fontWeight: 'bold',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          opacity: 1,
-                          boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)'
-                        }}
+                        style={{ ...styles.navItem, marginTop: '30px', backgroundColor: '#10b981', color: 'white', fontWeight: 'bold' }}
                       >
                         <span style={{ marginRight: '12px' }}>✅</span> Informe Enviado
                       </div>
                     ) : (
                       <div
                         onClick={handleRemitirInforme}
-                        style={{
-                          ...styles.navItem,
-                          marginTop: '30px',
-                          backgroundColor: '#f59e0b',
-                          color: 'white',
-                          fontWeight: 'bold',
-                          justifyContent: 'center',
-                          boxShadow: '0 4px 6px rgba(245, 158, 11, 0.2)',
-                          cursor: 'pointer'
-                        }}
+                        style={{ ...styles.navItem, marginTop: '30px', backgroundColor: '#f59e0b', color: 'white', fontWeight: 'bold' }}
                       >
                         <span style={{ marginRight: '12px' }}>📤</span> Remitir Informe
                       </div>
@@ -744,16 +752,26 @@ function App() {
       </aside>
 
       {/* --- CONTENIDO PRINCIPAL --- */}
+      {/* --- CONTENIDO PRINCIPAL --- */}
       <main style={styles.mainContent}>
-        {vistaActual === 'admin' && ((user.roles?.nombre_rol === 'ADMIN') || (user.rol_id === 1)) && (
-          <AdminDashboard />
-        )}
 
-        {vistaActual === 'dashboard' && (
+        {/* PANEL ADMIN: Se activa para Directora (is_super_user) y para el Responsable (Admin) */}
+        {vistaActual === 'admin' && (
+          user.is_super_user ||
+          user.roles?.nombre_rol === 'ADMIN' ||
+          user.roles?.nombre_rol === 'ADMIN_TUTORIA' ||
+          user.rol_id === 1
+        ) && (
+            <AdminDashboard user={user} />
+          )}
+
+        {/* PANEL DE TUTORÍA: Mantiene todas tus funciones intactas. 
+            Se agrega la condición !user.is_super_user para evitar que la directora vea una lista vacía. */}
+        {vistaActual === 'dashboard' && !user.is_super_user && (
           <DashboardMaestro
             user={user}
             estudiantes={estudiantes}
-            bloqueado={informeEnviado} // <--- PASAMOS EL BLOQUEO AQUÍ
+            bloqueado={informeEnviado}
             onNuevaSesion={(est) => { setEstudianteSeleccionado(est); setSesionAEditarEnModal(null); setMostrarModalRegistro(true); }}
             onDerivar={(est, sesion = null) => {
               setEstudianteSeleccionado(est);
@@ -786,16 +804,9 @@ function App() {
               else if (tipo === 'F05' || tipo === 'Derivación') setMostrarModalDerivacion(true);
               else setMostrarModalRegistro(true);
             }}
-
             onDescargarPDF={(sesion, est) => {
               const tipo = sesion.tipo_formato || '';
-
-              if (tipo === 'F01') {
-                const desarrollo = typeof sesion.desarrollo_entrevista === 'string'
-                  ? JSON.parse(sesion.desarrollo_entrevista)
-                  : sesion.desarrollo_entrevista;
-                generarF01(sesion, est);
-              }
+              if (tipo === 'F01') generarF01(sesion, est);
               else if (tipo === 'F02') generarF02(sesion, sesion.estudiantes_asistentes || []);
               else if (tipo === 'F03') {
                 let datos = { ...sesion };
@@ -808,10 +819,20 @@ function App() {
           />
         )}
 
-        {vistaActual === 'calendario' && (
-          <CalendarioAcademico usuario={user} />
+        {/* RE-DIRECCIÓN DE SEGURIDAD: Si la directora cae en dashboard, la movemos a admin */}
+        {vistaActual === 'dashboard' && user.is_super_user && (
+          <div style={{ padding: '40px', textAlign: 'center' }}>
+            <h2 style={{ color: '#1e3a8a' }}>Cargando Panel de Dirección...</h2>
+            {/* Pequeño hack para forzar la vista si el login falla en redirigir */}
+            {setTimeout(() => setVistaActual('admin'), 100)}
+          </div>
         )}
 
+        {vistaActual === 'calendario' && user && (
+          <div style={{ height: '100%', width: '100%', backgroundColor: 'white' }}>
+            <CalendarioAcademico usuario={user} />
+          </div>
+        )}
       </main>
 
       {/* --- RENDERIZADO DE MODALES --- */}
@@ -821,6 +842,7 @@ function App() {
       {mostrarModalF03 && <ModalFichaEntrevista estudiante={estudianteSeleccionado} user={user} sesionAEditar={sesionAEditarEnModal} onClose={() => { setMostrarModalF03(false); setSesionAEditarEnModal(null); }} onGuardar={manejarGuardarF03} />}
       {mostrarModalGrupal && <ModalTutoriaGrupal estudiantes={estudiantes} user={user} onGuardar={manejarGuardarGrupal} onClose={finalizarYDescargarPDF} sesionAEditar={sesionAEditarEnModal} />}
       {mostrarModalHistorial && <ModalHistorial estudiante={estudianteSeleccionado} historial={estudianteSeleccionado.sesiones} onClose={() => setMostrarModalHistorial(false)} onEliminar={manejarEliminarRegistro} onEditar={manejarActualizarSesion} onRefrescar={cargarEstudiantes} />}
+      <Toaster position="top-right" richColors />
     </div>
   );
 }
@@ -842,6 +864,7 @@ const styles = {
   sidebarFooter: { padding: '24px', borderTop: '1px solid #1e293b' },
   logoutBtn: { width: '100%', padding: '12px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   mainContent: { flex: 1, overflow: 'hidden', position: 'relative' }
+
 };
 
 export default App;

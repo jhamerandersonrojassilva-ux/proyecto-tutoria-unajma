@@ -17,8 +17,8 @@
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.7",
     "multer": "^2.0.2",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "react-signature-pad-wrapper": "^4.3.2",
     "sonner": "^2.0.7"
   },
